@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="container">
+
+    <!-- HEADER -->
+    <header>
+      <div class="logo">N<span>etflix</span> Link</div>
+      <p>{{ subtitle }}</p>
+    </header>
+
+    <!-- TABS -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="tab-single">🔑 Đơn lẻ</button>
+      <button class="tab-btn" data-tab="tab-batch">📦 Batch</button>
+      <button class="tab-btn" data-tab="tab-debug">🔬 Debug</button>
+    </div>
+
+    <!-- ===== TAB: ĐƠN LẺ ===== -->
+    <div id="tab-single" class="tab-panel active">
+      <div class="card">
+        <h3>Cookie Netflix</h3>
+        <form id="single-form">
+          <textarea
+            id="single-input"
+            placeholder='Dán cookie vào đây (JSON array hoặc chuỗi thuần tuý).
+Ví dụ JSON:
+[{"name":"NetflixId","value":"v%3D3%26ct..."},{"name":"SecureNetflixId","value":"v%3D3%26mac..."}]
+
+Ví dụ thuần tuý:
+NetflixId=v%3D3%26ct...; SecureNetflixId=v%3D3%26mac...'
+          ></textarea>
+
+          <div class="format-hint">
+            Cần tối thiểu <code>NetflixId</code> và <code>SecureNetflixId</code>.
+            Hỗ trợ export từ <strong>EditThisCookie</strong>, <strong>Cookie-Editor</strong> (JSON array) hoặc chuỗi cookie thô.
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary" id="single-btn">
+              <div class="spinner" id="single-spinner"></div>
+              Tạo Link
+            </button>
+            <button type="button" class="btn btn-clear" id="clear-single">Xoá</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="single-results">
+        <div class="empty-state">
+          <div class="icon">🎬</div>
+          Kết quả sẽ hiện ở đây
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== TAB: BATCH ===== -->
+    <div id="tab-batch" class="tab-panel">
+      <div class="card">
+        <h3>Batch – Nhiều tài khoản</h3>
+        <form id="batch-form">
+          <textarea
+            id="batch-input"
+            style="min-height: 200px"
+            placeholder='Dán nhiều bộ cookie. App TỰ ĐỘNG detect — không cần "----".
+
+Ví dụ (dán liền nhau):
+[{"name":"NetflixId","value":"..."},...][{"name":"NetflixId","value":"..."},...]
+
+Hoặc cách dòng:
+[{"name":"NetflixId","value":"..."},...]
+
+[{"name":"NetflixId","value":"..."},...]'
+          ></textarea>
+
+          <div class="format-hint">
+            App tự detect block: nhiều JSON array dính nhau, cách bằng dòng trắng, hoặc <code>----</code> đều OK.
+            Trộn JSON array với chuỗi thuần tuý cũng được.
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary" id="batch-btn">
+              <div class="spinner" id="batch-spinner"></div>
+              Tạo Tất Cả
+            </button>
+            <button type="button" class="btn btn-stop" id="stop-batch" style="display:none;">⏹ Dừng</button>
+            <button type="button" class="btn btn-clear" id="clear-batch">Xoá</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="progress-wrap" id="batch-progress-wrap" style="display:none;">
+        <div class="progress-info">
+          <span id="batch-progress-text">Đang xử lý 0/0...</span>
+          <span id="batch-progress-percent">0%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="batch-progress-fill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="stats-bar" id="batch-stats" style="display:none; margin-bottom:16px;"></div>
+
+      <div id="batch-results">
+        <div class="empty-state">
+          <div class="icon">📦</div>
+          Kết quả batch sẽ hiện ở đây
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== TAB: DEBUG ===== -->
+    <div id="tab-debug" class="tab-panel">
+      <div class="card">
+        <h3>Debug – Thử endpoint tuỳ chỉnh</h3>
+        <p class="format-hint" style="margin-bottom:12px;">
+          Dùng tab này để tìm endpoint đúng. Dán cookie + URL endpoint muốn thử → xem raw response từ Netflix.
+          <br>Hướng dẫn tìm endpoint: mở DevTools (F12) → Network → đăng nhập Netflix → tìm request có <code>loginWithToken</code> hoặc <code>token</code>.
+        </p>
+        <form id="debug-form">
+          <label style="font-size:.8rem;color:var(--text-muted);display:block;margin-bottom:4px;">Cookie</label>
+          <textarea id="debug-cookie" style="min-height:80px;" placeholder="Dán cookie JSON hoặc chuỗi thuần..."></textarea>
+
+          <label style="font-size:.8rem;color:var(--text-muted);display:block;margin:10px 0 4px;">Endpoint URL</label>
+          <input id="debug-url" type="text"
+            style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);padding:9px 12px;font-family:Consolas,monospace;font-size:.8rem;outline:none;"
+            placeholder="https://www.netflix.com/api/shakti/{buildId}/loginWithToken" />
+
+          <div class="actions" style="margin-top:10px;">
+            <select id="debug-method" style="background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:.85rem;">
+              <option>POST</option><option>GET</option>
+            </select>
+            <button type="submit" class="btn btn-primary" id="debug-btn">
+              <div class="spinner" id="debug-spinner"></div>
+              Thử
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div id="debug-result"></div>
+    </div>
+
+  </div>
+
+  <script src="/static/js/main.js"></script>
+</body>
+</html>
