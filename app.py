@@ -37,6 +37,8 @@ def generate():
 @app.route("/api/batch", methods=["POST"])
 def batch():
     """Batch xử lý toàn bộ trong 1 request (legacy — vẫn giữ để compat)."""
+    import time
+    import random
     body = request.get_json(silent=True) or {}
     raw_all = body.get("cookies", "").strip()
     if not raw_all:
@@ -51,6 +53,9 @@ def batch():
         result = get_login_links(cookies_dict)
         result["index"] = i
         results.append(result)
+        # Delay ngẫu nhiên 1-3s giữa các request để tránh Netflix rate limit
+        if i < len(blocks):
+            time.sleep(random.uniform(1.0, 3.0))
     return jsonify({"results": results})
 
 
@@ -92,6 +97,8 @@ def debug():
 
 
 if __name__ == "__main__":
-    print(f"[*] App chạy tại http://localhost:{config.PORT}")
-    print(f"[*] Debug endpoint: POST http://localhost:{config.PORT}/api/debug")
-    app.run(host="0.0.0.0", port=config.PORT, debug=config.DEBUG)
+    import os
+    port = int(os.environ.get("PORT", config.PORT))
+    print(f"[*] App chạy tại http://0.0.0.0:{port}")
+    print(f"[*] Debug endpoint: POST http://0.0.0.0:{port}/api/debug")
+    app.run(host="0.0.0.0", port=port, debug=config.DEBUG)

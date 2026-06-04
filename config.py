@@ -1,5 +1,5 @@
 PORT = 5000
-DEBUG = True
+DEBUG = False
 SECRET_KEY = "netflix-login-app-2024"
 
 # --- Tuỳ chỉnh tiêu đề hiển thị ---

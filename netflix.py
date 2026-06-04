@@ -17,11 +17,29 @@ import urllib.parse
 from datetime import datetime, timezone
 
 import requests
+import time
+import random
 from urllib3.exceptions import InsecureRequestWarning
 
 from config import USER_AGENT, PC_LOGIN_BASE, MOBILE_LOGIN_BASE, CUSTOM_ENDPOINT
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+
+# ─── User-Agent Pool ────────────────────────────────────────────────────────────
+
+USER_AGENTS = [
+    "Argo/15.48.1 (iPhone; iOS 15.8.5; Scale/2.00)",
+    "Argo/15.48.1 (iPhone; iOS 15.8.4; Scale/2.00)",
+    "Argo/15.48.1 (iPhone; iOS 15.7.3; Scale/2.00)",
+    "Argo/15.48.1 (iPhone; iOS 15.6.1; Scale/2.00)",
+    "Argo/15.48.1 (iPhone; iOS 15.5; Scale/2.00)",
+    "Argo/15.48.1 (iPhone; iOS 16.0.1; Scale/2.00)",
+    "Argo/15.48.1 (iPhone; iOS 16.1; Scale/2.00)",
+]
+
+
+def _random_ua() -> str:
+    return random.choice(USER_AGENTS)
 
 
 def _gen_esn() -> str:
@@ -79,8 +97,13 @@ def _build_query_params(esn: str) -> dict:
 
 
 def _build_headers(esn: str, profile_guid: str, top_uuid: str, user_action_uuid: str) -> dict:
+    # Parse iOS version từ UA
+    ua = _random_ua()
+    ios_match = re.search(r"iOS ([\d.]+)", ua)
+    ios_version = ios_match.group(1) if ios_match else "15.8.5"
+
     return {
-        "User-Agent": "Argo/15.48.1 (iPhone; iOS 15.8.5; Scale/2.00)",
+        "User-Agent": ua,
         "x-netflix.request.attempt": "1",
         "x-netflix.request.client.user.guid": profile_guid,
         "x-netflix.context.profile-guid": profile_guid,
@@ -99,16 +122,19 @@ def _build_headers(esn: str, profile_guid: str, top_uuid: str, user_action_uuid:
         "x-netflix.client.ftl.esn": esn,
         "x-netflix.context.locales": "en-US",
         "x-netflix.context.top-level-uuid": top_uuid,
-        "x-netflix.client.iosversion": "15.8.5",
+        "x-netflix.client.iosversion": ios_version,
         "accept-language": "en-US;q=1",
         "x-netflix.argo.abtests": "",
-        "x-netflix.context.os-version": "15.8.5",
+        "x-netflix.context.os-version": ios_version,
         "x-netflix.request.client.context": '{"appState":"foreground"}',
         "x-netflix.context.ui-flavor": "argo",
         "x-netflix.argo.nfnsm": "9",
         "x-netflix.context.pixel-density": "2.0",
         "x-netflix.request.toplevel.uuid": top_uuid,
         "x-netflix.request.client.timezoneid": "Asia/Ho_Chi_Minh",
+        "x-netflix.client.brand": "Apple",
+        "x-netflix.client.model": "iPhone",
+        "x-netflix.client.carrier": "wifi",
     }
 
 
@@ -278,8 +304,12 @@ def _extract_profile_guid(netflix_id: str) -> str:
 
 
 def _build_cookie_header(cookies_dict: dict) -> str:
+    """Chỉ gửi NetflixId để tránh conflict với SecureNetflixId."""
     parts = []
-    for k in ("NetflixId", "SecureNetflixId", "nfvdid", "flwssn", "OptanonConsent"):
+    netflix_id = cookies_dict.get("NetflixId")
+    if netflix_id:
+        parts.append(f"NetflixId={netflix_id}")
+    for k in ("nfvdid", "flwssn", "OptanonConsent"):
         v = cookies_dict.get(k)
         if v:
             parts.append(f"{k}={v}")
@@ -288,6 +318,9 @@ def _build_cookie_header(cookies_dict: dict) -> str:
 
 def _try_request(target_url: str, cookies_dict: dict, attempt_label: str) -> dict:
     """1 lần thử với ESN + UUIDs random. Trả về dict gồm log + token (nếu có)."""
+    # Random delay để tránh Netflix detect pattern
+    time.sleep(random.uniform(0.3, 1.5))
+
     netflix_id = cookies_dict["NetflixId"]
     esn = _gen_esn()
     profile_guid = _extract_profile_guid(netflix_id)
@@ -343,23 +376,14 @@ def get_login_links(cookies_dict: dict) -> dict:
     debug: list = []
     target_url = CUSTOM_ENDPOINT or FTL_URL
 
-    # Thử lần 1 với fresh ESN + all cookies
-    r = _try_request(target_url, cookies_dict, "try1")
-    debug.append(r["log"])
-    if r["token"]:
-        return {**_make_result(r["token"], r["expires"]), "debug": debug}
+    # Thử với NetflixId only trước (SecureNetflixId có thể conflict)
+    cookies_netflix_only = {k: v for k, v in cookies_dict.items() if k == "NetflixId"}
 
-    # Retry với fresh ESN+UUID khác (đôi khi Netflix throttle 1 request đầu)
-    r = _try_request(target_url, cookies_dict, "try2")
-    debug.append(r["log"])
-    if r["token"]:
-        return {**_make_result(r["token"], r["expires"]), "debug": debug}
-
-    # Retry lần 3
-    r = _try_request(target_url, cookies_dict, "try3")
-    debug.append(r["log"])
-    if r["token"]:
-        return {**_make_result(r["token"], r["expires"]), "debug": debug}
+    for attempt_label in ("try1", "try2", "try3"):
+        r = _try_request(target_url, cookies_netflix_only, attempt_label)
+        debug.append(r["log"])
+        if r["token"]:
+            return {**_make_result(r["token"], r["expires"]), "debug": debug}
 
     last = debug[-1]
     return {
@@ -372,7 +396,6 @@ def get_login_links(cookies_dict: dict) -> dict:
 # ─── Debug probe (giữ tương thích cũ) ─────────────────────────────────────────
 
 def probe_endpoint(cookies_dict: dict, url: str, method: str = "POST") -> dict:
-    """Thử 1 endpoint tuỳ ý — dùng cho tab Debug."""
     netflix_id = cookies_dict.get("NetflixId", "")
     profile_guid = _extract_profile_guid(netflix_id) if netflix_id else "PROFILE"
     headers = _build_headers(_gen_esn(), profile_guid, _gen_uuid(), _gen_uuid())
