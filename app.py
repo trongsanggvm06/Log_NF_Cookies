@@ -6,6 +6,11 @@ app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 
 
+@app.errorhandler(Exception)
+def handle_unexpected_error(err):
+    return jsonify({"ok": False, "error": f"Lỗi server nội bộ: {type(err).__name__}"}), 500
+
+
 @app.route("/")
 def index():
     return render_template("index.html", title=config.APP_TITLE, subtitle=config.APP_SUBTITLE)

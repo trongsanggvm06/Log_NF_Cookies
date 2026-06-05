@@ -316,9 +316,28 @@ async function callGenerate(rawBlock) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cookies: rawBlock }),
     });
-    return await resp.json();
-  } catch {
-    return { ok: false, error: "Lỗi kết nối đến server" };
+
+    const contentType = resp.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const text = await resp.text();
+      return {
+        ok: false,
+        error: `Server trả về phản hồi không hợp lệ (HTTP ${resp.status})`,
+        debug_preview: text.slice(0, 200),
+      };
+    }
+
+    const data = await resp.json();
+    if (!resp.ok) {
+      return {
+        ok: false,
+        error: data?.error || `HTTP ${resp.status}`,
+        debug: data?.debug,
+      };
+    }
+    return data;
+  } catch (err) {
+    return { ok: false, error: err?.message || "Lỗi kết nối đến server" };
   }
 }
 
