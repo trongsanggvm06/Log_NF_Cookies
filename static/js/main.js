@@ -95,6 +95,7 @@ function buildCard(data, index = null) {
         <a class="link-url" href="${data.mobile}" target="_blank" title="${data.mobile}">${data.mobile}</a>
         <button class="btn btn-sm btn-copy" data-copy-text="${data.mobile}" onclick="copyWithQuota(this)">Copy</button>
       </div>
+      <div class="mobile-hint">💡 Dán link này vào <strong>Chrome/Safari</strong> trên điện thoại → sẽ tự mở app Netflix</div>
 
       <div class="copy-quota-bar">
         📋 Đã copy: <span class="copy-count">0</span>/${COPY_LIMIT} lần (PC + Mobile chung)

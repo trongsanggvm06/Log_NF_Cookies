@@ -1,142 +1,49 @@
 """
 Netflix Login Link Generator
 
-Sử dụng Netflix iOS FTL (Falcor) endpoint — giả lập là iOS app Argo 15.48.
-Path: ["account","token","default"] → trả về { token, expires }.
+Sử dụng Netflix Android GraphQL endpoint để tạo auto-login token.
+Endpoint: https://android13.prod.ftl.netflix.com/graphql
+Operation: CreateAutoLoginToken (persisted query)
 
-Chỉ cần cookie NetflixId. Token base64 dùng làm nftoken trong URL.
-
-Ref discovery: github.com/harshitkamboj/Netflix-NFToken-Generator
+Ref: github.com/harshitkamboj/Netflix-NFToken-Generator
 """
 import json
 import re
 import random
-import string
-import uuid
-import urllib.parse
+import time
 from datetime import datetime, timezone
 
 import requests
-import time
-import random
 from urllib3.exceptions import InsecureRequestWarning
 
-from config import USER_AGENT, PC_LOGIN_BASE, MOBILE_LOGIN_BASE, CUSTOM_ENDPOINT
+from config import PC_LOGIN_BASE, MOBILE_LOGIN_BASE
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
-# ─── User-Agent Pool ────────────────────────────────────────────────────────────
+# ─── GraphQL Endpoint (Android) ─────────────────────────────────────────────────
 
-USER_AGENTS = [
-    "Argo/15.48.1 (iPhone; iOS 15.8.5; Scale/2.00)",
-    "Argo/15.48.1 (iPhone; iOS 15.8.4; Scale/2.00)",
-    "Argo/15.48.1 (iPhone; iOS 15.7.3; Scale/2.00)",
-    "Argo/15.48.1 (iPhone; iOS 15.6.1; Scale/2.00)",
-    "Argo/15.48.1 (iPhone; iOS 15.5; Scale/2.00)",
-    "Argo/15.48.1 (iPhone; iOS 16.0.1; Scale/2.00)",
-    "Argo/15.48.1 (iPhone; iOS 16.1; Scale/2.00)",
-]
+GRAPHQL_URL = "https://android13.prod.ftl.netflix.com/graphql"
 
+# GraphQL mutation payload với persisted query
+GRAPHQL_PAYLOAD = {
+    "operationName": "CreateAutoLoginToken",
+    "variables": {"scope": "WEBVIEW_MOBILE_STREAMING"},
+    "extensions": {
+        "persistedQuery": {
+            "version": 102,
+            "id": "76e97129-f4b5-41a0-a73c-12e674896849",
+        }
+    },
+}
 
-def _random_ua() -> str:
-    return random.choice(USER_AGENTS)
-
-
-def _gen_esn() -> str:
-    """Sinh ESN random theo format: NFAPPL-02-IPHONE8=1-PXA-<128 ký tự base32>."""
-    chars = string.digits + string.ascii_uppercase
-    suffix = "".join(random.choice(chars) for _ in range(128))
-    return f"NFAPPL-02-IPHONE8=1-PXA-{suffix}"
-
-
-def _gen_uuid() -> str:
-    return str(uuid.uuid4()).upper()
-
-
-# ─── Constants — iOS FTL endpoint ─────────────────────────────────────────────
-
-FTL_URL = "https://ios.prod.ftl.netflix.com/iosui/user/15.48"
-
-CONFIG_BLOB = (
-    '{"gamesInTrailersEnabled":"false","isTrailersEvidenceEnabled":"false",'
-    '"cdsMyListSortEnabled":"true","kidsBillboardEnabled":"true",'
-    '"addHorizontalBoxArtToVideoSummariesEnabled":"false",'
-    '"skOverlayTestEnabled":"false","homeFeedTestTVMovieListsEnabled":"false",'
-    '"baselineOnIpadEnabled":"true","trailersVideoIdLoggingFixEnabled":"true",'
-    '"postPlayPreviewsEnabled":"false","bypassContextualAssetsEnabled":"false",'
-    '"roarEnabled":"false","useSeason1AltLabelEnabled":"false",'
-    '"disableCDSSearchPaginationSectionKinds":["searchVideoCarousel"],'
-    '"cdsSearchHorizontalPaginationEnabled":"true","searchPreQueryGamesEnabled":"true",'
-    '"kidsMyListEnabled":"true","billboardEnabled":"true","useCDSGalleryEnabled":"true",'
-    '"contentWarningEnabled":"true","videosInPopularGamesEnabled":"true",'
-    '"avifFormatEnabled":"false","sharksEnabled":"true"}'
-)
-
-
-def _build_query_params(esn: str) -> dict:
-    return {
-        "appVersion": "15.48.1",
-        "config": CONFIG_BLOB,
-        "device_type": "NFAPPL-02-",
-        "esn": esn,  # raw — requests sẽ URL-encode đúng cách
-        "idiom": "phone",
-        "iosVersion": "15.8.5",
-        "isTablet": "false",
-        "languages": "en-US",
-        "locale": "en-US",
-        "maxDeviceWidth": "375",
-        "model": "saget",
-        "modelType": "IPHONE8-1",
-        "odpAware": "true",
-        "path": '["account","token","default"]',
-        "pathFormat": "graph",
-        "pixelDensity": "2.0",
-        "progressive": "false",
-        "responseFormat": "json",
-    }
-
-
-def _build_headers(esn: str, profile_guid: str, top_uuid: str, user_action_uuid: str) -> dict:
-    # Parse iOS version từ UA
-    ua = _random_ua()
-    ios_match = re.search(r"iOS ([\d.]+)", ua)
-    ios_version = ios_match.group(1) if ios_match else "15.8.5"
-
-    return {
-        "User-Agent": ua,
-        "x-netflix.request.attempt": "1",
-        "x-netflix.request.client.user.guid": profile_guid,
-        "x-netflix.context.profile-guid": profile_guid,
-        "x-netflix.request.routing": (
-            '{"path":"/nq/mobile/nqios/~15.48.0/user","control_tag":"iosui_argo"}'
-        ),
-        "x-netflix.context.app-version": "15.48.1",
-        "x-netflix.argo.translated": "true",
-        "x-netflix.context.form-factor": "phone",
-        "x-netflix.context.sdk-version": "2012.4",
-        "x-netflix.client.appversion": "15.48.1",
-        "x-netflix.context.max-device-width": "375",
-        "x-netflix.context.ab-tests": "",
-        "x-netflix.tracing.cl.useractionid": user_action_uuid,
-        "x-netflix.client.type": "argo",
-        "x-netflix.client.ftl.esn": esn,
-        "x-netflix.context.locales": "en-US",
-        "x-netflix.context.top-level-uuid": top_uuid,
-        "x-netflix.client.iosversion": ios_version,
-        "accept-language": "en-US;q=1",
-        "x-netflix.argo.abtests": "",
-        "x-netflix.context.os-version": ios_version,
-        "x-netflix.request.client.context": '{"appState":"foreground"}',
-        "x-netflix.context.ui-flavor": "argo",
-        "x-netflix.argo.nfnsm": "9",
-        "x-netflix.context.pixel-density": "2.0",
-        "x-netflix.request.toplevel.uuid": top_uuid,
-        "x-netflix.request.client.timezoneid": "Asia/Ho_Chi_Minh",
-        "x-netflix.client.brand": "Apple",
-        "x-netflix.client.model": "iPhone",
-        "x-netflix.client.carrier": "wifi",
-    }
-
+# Headers cần thiết cho request
+BASE_HEADERS = {
+    "User-Agent": "com.netflix.mediaclient/63884 (Linux; U; Android 13; ro; M2007J3SG; Build/TQ1A.230205.001.A2; Cronet/143.0.7445.0)",
+    "Accept": "multipart/mixed;deferSpec=20220824, application/graphql-response+json, application/json",
+    "Content-Type": "application/json",
+    "Origin": "https://www.netflix.com",
+    "Referer": "https://www.netflix.com/",
+}
 
 COOKIE_KEYS = ("NetflixId", "SecureNetflixId", "nfvdid", "OptanonConsent", "flwssn")
 
@@ -146,6 +53,7 @@ COOKIE_KEYS = ("NetflixId", "SecureNetflixId", "nfvdid", "OptanonConsent", "flws
 def _decode_cookie_value(value: str) -> str:
     if isinstance(value, str) and "%" in value:
         try:
+            import urllib.parse
             return urllib.parse.unquote(value)
         except Exception:
             return value
@@ -154,11 +62,7 @@ def _decode_cookie_value(value: str) -> str:
 
 def split_cookie_blocks(raw: str) -> list:
     """
-    Tách input thành nhiều block cookie. Tự động detect 3 kiểu phân cách:
-    1. Dùng "----" giữa các block (legacy)
-    2. Nhiều JSON array dính nhau: [{...}][{...}] hoặc cách nhau bằng whitespace
-    3. Cách nhau bằng dòng trắng (2+ newline liên tiếp)
-    Nếu không match kiểu nào → trả về 1 block duy nhất.
+    Tách input thành nhiều block cookie. Tự động detect các kiểu phân cách.
     """
     text = raw.strip()
     if not text:
@@ -200,8 +104,7 @@ def split_cookie_blocks(raw: str) -> list:
     if len(blocks) >= 2:
         return blocks
 
-    # 3. Raw cookie string: nhiều "NetflixId=" trong text → mỗi cái là 1 block
-    #    Format ví dụ: "NetflixId=xxx; SecureNetflixId=yyy;\nNetflixId=aaa; ..."
+    # 3. Raw cookie string: nhiều "NetflixId=" trong text
     netflix_id_positions = [m.start() for m in re.finditer(r"\bNetflixId=", text)]
     if len(netflix_id_positions) >= 2:
         raw_blocks = []
@@ -213,7 +116,7 @@ def split_cookie_blocks(raw: str) -> list:
         if len(raw_blocks) >= 2:
             return raw_blocks
 
-    # 4. Split theo dòng trắng (2+ newline)
+    # 4. Split theo dòng trắng
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     if len(paragraphs) >= 2:
         return paragraphs
@@ -223,12 +126,7 @@ def split_cookie_blocks(raw: str) -> list:
 
 
 def parse_cookies(raw: str) -> dict:
-    """
-    Hỗ trợ 3 định dạng:
-    - JSON array (export từ Cookie-Editor / EditThisCookie)
-    - JSON object {"NetflixId": "...", ...}
-    - Chuỗi thuần "NetflixId=...; SecureNetflixId=..."
-    """
+    """Hỗ trợ JSON array, JSON object, và chuỗi thuần."""
     text = raw.strip()
     cookie_dict: dict = {}
 
@@ -285,69 +183,65 @@ def _fmt_expiry(expiry) -> str:
         return str(expiry)
 
 
-def _make_result(token: str, expiry) -> dict:
+def _build_result(token: str, expiry) -> dict:
     return {
         "ok": True,
         "pc": PC_LOGIN_BASE + token,
         "mobile": MOBILE_LOGIN_BASE + token,
         "expiry": _fmt_expiry(expiry),
-        "build_id": "iosui/15.48",
+        "build_id": "android/63884",
     }
-
-
-def _extract_profile_guid(netflix_id: str) -> str:
-    """NetflixId chứa pg=GUID — lấy ra để dùng làm profile-guid trong headers."""
-    m = re.search(r"pg=([A-Z0-9]+)", netflix_id)
-    if m:
-        return m.group(1)
-    return "A4CS633D7VCBPE2GPK2HL4EKOE"  # fallback
 
 
 def _build_cookie_header(cookies_dict: dict) -> str:
-    """Chỉ gửi NetflixId để tránh conflict với SecureNetflixId."""
+    """Build cookie header với tất cả cookies có sẵn."""
     parts = []
-    netflix_id = cookies_dict.get("NetflixId")
-    if netflix_id:
-        parts.append(f"NetflixId={netflix_id}")
-    for k in ("nfvdid", "flwssn", "OptanonConsent"):
-        v = cookies_dict.get(k)
-        if v:
-            parts.append(f"{k}={v}")
+    for key in COOKIE_KEYS:
+        value = cookies_dict.get(key)
+        if value:
+            parts.append(f"{key}={value}")
     return "; ".join(parts)
 
 
-def _try_request(target_url: str, cookies_dict: dict, attempt_label: str) -> dict:
-    """1 lần thử với ESN + UUIDs random. Trả về dict gồm log + token (nếu có)."""
+# ─── Main request function ─────────────────────────────────────────────────────
+
+def _fetch_token(cookies_dict: dict, attempt: int) -> dict:
+    """
+    Gửi request GraphQL để lấy token.
+    Trả về dict với token, expiry và log info.
+    """
     # Random delay để tránh Netflix detect pattern
     time.sleep(random.uniform(0.3, 1.5))
 
-    netflix_id = cookies_dict["NetflixId"]
-    esn = _gen_esn()
-    profile_guid = _extract_profile_guid(netflix_id)
-    top_uuid = _gen_uuid()
-    user_action_uuid = _gen_uuid()
-
-    headers = _build_headers(esn, profile_guid, top_uuid, user_action_uuid)
+    # Build headers
+    headers = dict(BASE_HEADERS)
     headers["Cookie"] = _build_cookie_header(cookies_dict)
-    params = _build_query_params(esn)
 
-    try:
-        resp = requests.get(target_url, params=params, headers=headers,
-                            timeout=20, verify=False)
-    except requests.RequestException as e:
-        return {
-            "log": {"url": f"{attempt_label}: {target_url}",
-                    "status": "ERR", "preview": str(e)[:300]},
-            "token": None, "expires": None,
-        }
-
+    # Log info
     log = {
-        "url": f"{attempt_label}: {target_url}",
-        "status": resp.status_code,
-        "len": len(resp.text or ""),
-        "preview": (resp.text or "")[:800],
+        "url": f"try{attempt}: {GRAPHQL_URL}",
+        "status": None,
+        "len": 0,
+        "preview": "",
     }
 
+    try:
+        resp = requests.post(
+            GRAPHQL_URL,
+            headers=headers,
+            json=GRAPHQL_PAYLOAD,
+            timeout=30,
+            verify=False
+        )
+        log["status"] = resp.status_code
+        log["len"] = len(resp.text or "")
+        log["preview"] = (resp.text or "")[:800]
+    except requests.RequestException as e:
+        log["status"] = "ERR"
+        log["preview"] = str(e)[:300]
+        return {"log": log, "token": None, "expires": None}
+
+    # Parse response
     if resp.status_code != 200:
         return {"log": log, "token": None, "expires": None}
 
@@ -356,72 +250,86 @@ def _try_request(target_url: str, cookies_dict: dict, attempt_label: str) -> dic
     except Exception:
         return {"log": log, "token": None, "expires": None}
 
-    token_data = (
-        (((data.get("value") or {}).get("account") or {}).get("token") or {}).get("default")
-        or {}
-    )
-    return {
-        "log": log,
-        "token": token_data.get("token"),
-        "expires": token_data.get("expires"),
-    }
+    # Extract token từ GraphQL response
+    # Format: {"data": {"createAutoLoginToken": "token_value"}}
+    token = None
+    expires = None
+
+    if isinstance(data, dict):
+        token = data.get("data", {}).get("createAutoLoginToken")
+        if not token:
+            # Thử extract từ response text
+            try:
+                token_match = re.search(r'"createAutoLoginToken"\s*:\s*"([^"]+)"', resp.text)
+                if token_match:
+                    token = token_match.group(1)
+            except Exception:
+                pass
+
+    return {"log": log, "token": token, "expires": expires}
 
 
 # ─── Hàm chính ────────────────────────────────────────────────────────────────
 
 def get_login_links(cookies_dict: dict) -> dict:
+    """Lấy login link từ cookies."""
+    # Kiểm tra cookies bắt buộc
     if not cookies_dict.get("NetflixId"):
         return {"ok": False, "error": "Thiếu cookie: NetflixId"}
 
+    if not cookies_dict.get("SecureNetflixId"):
+        return {"ok": False, "error": "Thiếu cookie: SecureNetflixId"}
+
+    if not cookies_dict.get("nfvdid"):
+        return {"ok": False, "error": "Thiếu cookie: nfvdid"}
+
     debug: list = []
-    target_url = CUSTOM_ENDPOINT or FTL_URL
 
-    # Thử với NetflixId only trước (SecureNetflixId có thể conflict)
-    cookies_netflix_only = {k: v for k, v in cookies_dict.items() if k == "NetflixId"}
+    # Thử request nhiều lần
+    for attempt in range(1, 4):
+        result = _fetch_token(cookies_dict, attempt)
+        debug.append(result["log"])
 
-    for attempt_label in ("try1", "try2", "try3"):
-        r = _try_request(target_url, cookies_netflix_only, attempt_label)
-        debug.append(r["log"])
-        if r["token"]:
-            return {**_make_result(r["token"], r["expires"]), "debug": debug}
+        if result["token"]:
+            return {**_build_result(result["token"], result["expires"]), "debug": debug}
+
+        # Nghỉ ngẫu nhiên trước khi thử lại
+        if attempt < 3:
+            time.sleep(random.uniform(1.0, 2.0))
 
     last = debug[-1]
     return {
         "ok": False,
-        "error": f"HTTP {last.get('status')} sau 3 lần thử (ESN khác nhau) — cookie có thể đã hết hạn hoặc IP bị Netflix flag",
+        "error": f"HTTP {last.get('status')} sau 3 lần thử — cookie có thể đã hết hạn hoặc IP bị Netflix flag",
         "debug": debug,
     }
 
 
-# ─── Debug probe (giữ tương thích cũ) ─────────────────────────────────────────
+# ─── Debug probe ──────────────────────────────────────────────────────────────
 
 def probe_endpoint(cookies_dict: dict, url: str, method: str = "POST") -> dict:
-    netflix_id = cookies_dict.get("NetflixId", "")
-    profile_guid = _extract_profile_guid(netflix_id) if netflix_id else "PROFILE"
-    headers = _build_headers(_gen_esn(), profile_guid, _gen_uuid(), _gen_uuid())
-    if cookies_dict:
-        headers["Cookie"] = _build_cookie_header(cookies_dict)
+    """Test endpoint tùy ý với cookies đã cho."""
+    headers = dict(BASE_HEADERS)
+    headers["Cookie"] = _build_cookie_header(cookies_dict)
 
     try:
         if method.upper() == "POST":
-            resp = requests.post(url, headers=headers, timeout=15, verify=False)
+            resp = requests.post(url, headers=headers, json=GRAPHQL_PAYLOAD, timeout=30, verify=False)
         else:
-            resp = requests.get(url, headers=headers, timeout=15, verify=False)
+            resp = requests.get(url, headers=headers, timeout=30, verify=False)
         body_preview = (resp.text or "")[:1500]
         return {
             "status": resp.status_code,
             "body": body_preview,
-            "build_id": "iosui/15.48",
-            "auth_url_present": False,
+            "build_id": "android/63884",
             "cookies_sent": list(cookies_dict.keys()),
-            "token_found": "token" in body_preview.lower(),
+            "token_found": "createAutoLoginToken" in body_preview or "token" in body_preview.lower(),
         }
     except Exception as e:
         return {
             "status": "ERR",
             "body": str(e)[:300],
-            "build_id": "iosui/15.48",
-            "auth_url_present": False,
+            "build_id": "android/63884",
             "cookies_sent": list(cookies_dict.keys()),
             "token_found": False,
         }
