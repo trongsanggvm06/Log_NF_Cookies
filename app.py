@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify
 import config
-from netflix import parse_cookies, get_login_links, probe_endpoint, split_cookie_blocks
+from netflix import parse_cookies, parse_cookie_blocks, get_login_links, probe_endpoint, split_cookie_blocks
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -17,7 +17,9 @@ def generate():
     raw = body.get("cookies", "").strip()
     if not raw:
         return jsonify({"ok": False, "error": "Vui lòng nhập cookie"}), 400
-    cookies_dict = parse_cookies(raw)
+
+    parsed_blocks = parse_cookie_blocks(raw)
+    cookies_dict = parsed_blocks[0] if parsed_blocks else parse_cookies(raw)
     if not cookies_dict:
         # Có thể user paste nhiều bộ cookie vào tab Đơn lẻ → gợi ý chuyển Batch
         blocks = split_cookie_blocks(raw)
@@ -44,16 +46,16 @@ def batch():
     if not raw_all:
         return jsonify({"ok": False, "error": "Vui lòng nhập cookie"}), 400
     blocks = split_cookie_blocks(raw_all)
+    parsed_blocks = parse_cookie_blocks(raw_all)
     results = []
     for i, block in enumerate(blocks, 1):
-        cookies_dict = parse_cookies(block)
+        cookies_dict = parsed_blocks[i - 1] if i - 1 < len(parsed_blocks) else parse_cookies(block)
         if not cookies_dict:
             results.append({"index": i, "ok": False, "error": "Không đọc được cookie"})
             continue
         result = get_login_links(cookies_dict)
         result["index"] = i
         results.append(result)
-        # Delay ngẫu nhiên 1-3s giữa các request để tránh Netflix rate limit
         if i < len(blocks):
             time.sleep(random.uniform(1.0, 3.0))
     return jsonify({"results": results})
@@ -61,12 +63,26 @@ def batch():
 
 @app.route("/api/split", methods=["POST"])
 def split():
-    """Tách input thành các block cookie. Trả về list raw text — frontend sẽ
-    lần lượt gọi /api/generate cho từng block (progressive batch)."""
+    """Tách input thành các block cookie đã được hydrate để frontend xử lý progressive batch ổn định hơn."""
     body = request.get_json(silent=True) or {}
     raw_all = body.get("cookies", "").strip()
     if not raw_all:
         return jsonify({"ok": False, "error": "Vui lòng nhập cookie"}), 400
+
+    parsed_blocks = parse_cookie_blocks(raw_all)
+    if parsed_blocks:
+        hydrated_blocks = []
+        for cookie_dict in parsed_blocks:
+            parts = []
+            for key in ("NetflixId", "SecureNetflixId", "nfvdid", "OptanonConsent", "flwssn"):
+                value = cookie_dict.get(key)
+                if value:
+                    parts.append(f"{key}={value}")
+            if parts:
+                hydrated_blocks.append("; ".join(parts))
+        if hydrated_blocks:
+            return jsonify({"ok": True, "blocks": hydrated_blocks, "count": len(hydrated_blocks)})
+
     blocks = split_cookie_blocks(raw_all)
     return jsonify({"ok": True, "blocks": blocks, "count": len(blocks)})
 

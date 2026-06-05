@@ -104,7 +104,17 @@ def split_cookie_blocks(raw: str) -> list:
     if len(blocks) >= 2:
         return blocks
 
-    # 3. Raw cookie string: nhiều "NetflixId=" trong text
+    # 3. Raw cookie string: mỗi cặp NetflixId + SecureNetflixId là 1 block.
+    # Nếu có nfvdid xuất hiện sau cặp đó, gộp luôn vào block tương ứng.
+    pair_pattern = re.compile(
+        r"NetflixId=[^;\n]+;\s*SecureNetflixId=[^;\n]+;(?:\s*nfvdid=[^;\n]+;?)?",
+        re.IGNORECASE,
+    )
+    pair_blocks = [m.group(0).strip() for m in pair_pattern.finditer(text)]
+    if len(pair_blocks) >= 2:
+        return pair_blocks
+
+    # 4. Raw cookie string: nhiều "NetflixId=" trong text
     netflix_id_positions = [m.start() for m in re.finditer(r"\bNetflixId=", text)]
     if len(netflix_id_positions) >= 2:
         raw_blocks = []
@@ -116,13 +126,38 @@ def split_cookie_blocks(raw: str) -> list:
         if len(raw_blocks) >= 2:
             return raw_blocks
 
-    # 4. Split theo dòng trắng
+    # 5. Split theo dòng trắng
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     if len(paragraphs) >= 2:
         return paragraphs
 
-    # 5. Fallback: 1 block duy nhất
+    # 6. Fallback: 1 block duy nhất
     return [text]
+
+
+def _fill_missing_shared_cookies(block_dicts: list[dict]) -> list[dict]:
+    """
+    Một số input raw chỉ có nfvdid ở vài block dù thực tế cả batch dùng chung device id.
+    Với các block thiếu nfvdid, mượn nfvdid gần nhất trong batch để tránh false negative.
+    """
+    if not block_dicts:
+        return block_dicts
+
+    nearest_nfvdid = None
+    for cookie_dict in reversed(block_dicts):
+        if cookie_dict.get("nfvdid"):
+            nearest_nfvdid = cookie_dict["nfvdid"]
+        elif nearest_nfvdid:
+            cookie_dict["nfvdid"] = nearest_nfvdid
+
+    nearest_nfvdid = None
+    for cookie_dict in block_dicts:
+        if cookie_dict.get("nfvdid"):
+            nearest_nfvdid = cookie_dict["nfvdid"]
+        elif nearest_nfvdid:
+            cookie_dict["nfvdid"] = nearest_nfvdid
+
+    return block_dicts
 
 
 def parse_cookies(raw: str) -> dict:
@@ -157,15 +192,31 @@ def parse_cookies(raw: str) -> dict:
                 if name in COOKIE_KEYS and isinstance(value, str):
                     cookie_dict[name] = _decode_cookie_value(value)
 
+    raw_patterns = {
+        "NetflixId": r"(?<!\w)NetflixId=([^;,\s]+)",
+        "SecureNetflixId": r"(?<!\w)SecureNetflixId=([^;,\s]+)",
+        "nfvdid": r"(?<!\w)nfvdid=([A-Za-z0-9_\-]+)",
+        "OptanonConsent": r"(?<!\w)OptanonConsent=([^;,\s]+)",
+        "flwssn": r"(?<!\w)flwssn=([^;,\s]+)",
+    }
+
     # Fallback: regex tìm trong chuỗi thô
     for key in COOKIE_KEYS:
         if key in cookie_dict:
             continue
-        match = re.search(rf"(?<!\w){re.escape(key)}=([^;,\s]+)", text)
+        match = re.search(raw_patterns[key], text)
         if match:
             cookie_dict[key] = _decode_cookie_value(match.group(1))
 
     return cookie_dict
+
+
+def parse_cookie_blocks(raw: str) -> list[dict]:
+    """Parse toàn bộ input thành nhiều cookie dict và tự bù nfvdid gần nhất khi cần."""
+    blocks = split_cookie_blocks(raw)
+    parsed_blocks = [parse_cookies(block) for block in blocks]
+    parsed_blocks = [cookie_dict for cookie_dict in parsed_blocks if cookie_dict]
+    return _fill_missing_shared_cookies(parsed_blocks)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
