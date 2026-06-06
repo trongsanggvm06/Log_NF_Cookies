@@ -104,6 +104,14 @@ def _decode_cookie_value(value: str) -> str:
     return value
 
 
+def _strip_quotes(value: str) -> str:
+    """Bỏ cặp nháy bao quanh value nếu có: \"v=3...\" -> v=3..."""
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
+
+
 def split_cookie_blocks(raw: str) -> list:
     """
     Tách input thành nhiều block cookie.
@@ -249,11 +257,36 @@ def _fill_missing_shared_cookies(block_dicts: list) -> list:
 
 
 def parse_cookies(raw: str) -> dict:
-    """Parse cookie string thành dict, hỗ trợ nhiều format."""
+    """
+    Parse cookie string thành dict — hỗ trợ MỌI format Netflix phổ biến:
+      • JSON array (Cookie-Editor / EditThisCookie) — kể cả khi name/value KHÔNG liền nhau
+      • JSON object {NetflixId: ...} hoặc {"cookies": [...]}
+      • Chuỗi header: NetflixId=...; SecureNetflixId=...
+      • Raw key=value mỗi dòng
+      • Netscape cookies.txt (TAB-separated — từ tiện ích "Get cookies.txt")
+      • name: value (dấu hai chấm)
+      • JSON hỏng / cắt dở (vẫn vớt được name+value)
+      • Giá trị có/không URL-encode, có/không bọc nháy
+    """
     text = raw.strip()
     cookie_dict: dict = {}
 
-    # Thử parse JSON
+    def _take(name, value):
+        if (name in COOKIE_KEYS and isinstance(value, str)
+                and value and name not in cookie_dict):
+            cookie_dict[name] = _decode_cookie_value(value)
+
+    def _from_objects(items):
+        for c in items:
+            if not isinstance(c, dict):
+                continue
+            name = c.get("name") or c.get("Name") or c.get("key") or c.get("Key")
+            value = c.get("value")
+            if value is None:
+                value = c.get("Value")
+            _take(name, value)
+
+    # 1) JSON hợp lệ ──────────────────────────────────────────────────
     data = None
     try:
         data = json.loads(text)
@@ -261,42 +294,56 @@ def parse_cookies(raw: str) -> dict:
         pass
 
     if isinstance(data, list):
-        for cookie in data:
-            if isinstance(cookie, dict):
-                name = cookie.get("name")
-                value = cookie.get("value")
-                if name in COOKIE_KEYS and isinstance(value, str):
-                    cookie_dict[name] = _decode_cookie_value(value)
+        _from_objects(data)
     elif isinstance(data, dict):
-        if any(key in data for key in COOKIE_KEYS):
-            for key in COOKIE_KEYS:
-                value = data.get(key)
-                if isinstance(value, str):
-                    cookie_dict[key] = _decode_cookie_value(value)
-        elif isinstance(data.get("cookies"), list):
-            for cookie in data["cookies"]:
-                name = cookie.get("name")
-                value = cookie.get("value")
-                if name in COOKIE_KEYS and isinstance(value, str):
-                    cookie_dict[name] = _decode_cookie_value(value)
+        if isinstance(data.get("cookies"), list):
+            _from_objects(data["cookies"])
+        for key in COOKIE_KEYS:
+            v = data.get(key)
+            if isinstance(v, str):
+                _take(key, v)
 
-    # Regex patterns — nfvdid mới có format BQFmAAEB... (base64 với . và -)
-    raw_patterns = {
-        "NetflixId": r"(?<!\w)NetflixId=([^;,\s]+)",
-        "SecureNetflixId": r"(?<!\w)SecureNetflixId=([^;,\s]+)",
-        # FIX: nfvdid format mới là BQFmAAEB... chứa cả . và -
-        "nfvdid": r"(?<!\w)nfvdid=([A-Za-z0-9_\-\.]+)",
-        "OptanonConsent": r"(?<!\w)OptanonConsent=([^;,\s]+)",
-        "flwssn": r"(?<!\w)flwssn=([^;,\s]+)",
-        "gsid": r"(?<!\w)gsid=([^;,\s]+)",
-    }
+    # 2) JSON-fragment (JSON hỏng / cắt dở / name-value không liền nhau):
+    if not all(k in cookie_dict for k in ("NetflixId", "SecureNetflixId", "nfvdid")):
+        # 2a) Quét từng object {...} hoàn chỉnh (bất kể thứ tự name/value).
+        for obj in re.findall(r"\{[^{}]*\}", text):
+            nm = re.search(r'"name"\s*:\s*"([^"]+)"', obj, re.IGNORECASE)
+            vl = re.search(r'"value"\s*:\s*"([^"]*)"', obj, re.IGNORECASE)
+            if nm and vl:
+                _take(nm.group(1), vl.group(1))
+        # 2b) Object chưa đóng ngoặc (paste thiếu đuôi) / rải rác: bắt
+        #     "name":"KEY" rồi lấy "value" gần nhất (ưu tiên ngay sau).
+        for key in COOKIE_KEYS:
+            if key in cookie_dict:
+                continue
+            nm = re.search(rf'"name"\s*:\s*"{re.escape(key)}"', text, re.IGNORECASE)
+            if not nm:
+                continue
+            vm = re.search(r'"value"\s*:\s*"([^"]*)"',
+                           text[nm.end():nm.end() + 500], re.IGNORECASE)
+            if not vm:
+                befs = list(re.finditer(r'"value"\s*:\s*"([^"]*)"',
+                                        text[max(0, nm.start() - 500):nm.start()],
+                                        re.IGNORECASE))
+                vm = befs[-1] if befs else None
+            if vm:
+                _take(key, vm.group(1))
 
+    # 3) Chuỗi thô — tách name/value bằng '='  |  ':'  |  TAB (Netscape):
+    #       NAME=value   /   NAME: value   /   NAME<TAB>value   /   NAME="value"
+    #    Cho phép value bọc nháy "..." / '...'; nếu không thì cắt ở ; , khoảng trắng nháy.
     for key in COOKIE_KEYS:
         if key in cookie_dict:
             continue
-        match = re.search(raw_patterns[key], text)
-        if match:
-            cookie_dict[key] = _decode_cookie_value(match.group(1))
+        m = re.search(
+            rf"(?<!\w){re.escape(key)}[ ]*[=:\t][ ]*"
+            rf"(?:\"([^\"]*)\"|'([^']*)'|([^;,\s\"']+))",
+            text,
+        )
+        if m:
+            val = m.group(1) or m.group(2) or m.group(3)
+            if val:
+                cookie_dict[key] = _decode_cookie_value(_strip_quotes(val))
 
     return cookie_dict
 
@@ -488,13 +535,13 @@ def get_login_links(cookies_dict: dict) -> dict:
         err_summary = "; ".join(error_hints[:3])
         return {
             "ok": False,
-            "error": f"Tất cả strategies thất bại{hint}. Chi tiết: {err_summary}",
+            "error": f"Cookies die{hint}",
             "debug": all_debug,
         }
 
     return {
         "ok": False,
-        "error": f"HTTP {status} sau {len(STRATEGIES)} strategies — cookie có thể hết hạn hoặc IP bị Netflix flag{hint}",
+        "error": f"Cookies die{hint}",
         "debug": all_debug,
     }
 

@@ -85,17 +85,20 @@ function buildCard(data, index = null) {
       </div>
 
       <div class="link-row">
-        <span class="link-label">🖥️ PC</span>
+        <span class="link-label">💻 PC / Tablet / iPad</span>
         <a class="link-url" href="${data.pc}" target="_blank" title="${data.pc}">${data.pc}</a>
         <button class="btn btn-sm btn-copy" data-copy-text="${data.pc}" onclick="copyWithQuota(this)">Copy</button>
       </div>
 
       <div class="link-row">
-        <span class="link-label">📱 Mobile</span>
+        <span class="link-label">📱 Điện thoại</span>
         <a class="link-url" href="${data.mobile}" target="_blank" title="${data.mobile}">${data.mobile}</a>
         <button class="btn btn-sm btn-copy" data-copy-text="${data.mobile}" onclick="copyWithQuota(this)">Copy</button>
       </div>
-      <div class="mobile-hint">💡 Dán link này vào <strong>Chrome/Safari</strong> trên điện thoại → sẽ tự mở app Netflix</div>
+      <div class="mobile-hint">
+        💡 <strong>Điện thoại:</strong> dùng link <strong>📱</strong> — dán vào Chrome/Safari sẽ tự mở app Netflix.<br>
+        💻 <strong>Tablet / iPad / Máy tính:</strong> dùng link <strong>💻</strong> — mở bằng trình duyệt, đăng nhập thẳng vào Netflix web (không cần app).
+      </div>
 
       <div class="copy-quota-bar">
         📋 Đã copy: <span class="copy-count">0</span>/${COPY_LIMIT} lần (PC + Mobile chung)
