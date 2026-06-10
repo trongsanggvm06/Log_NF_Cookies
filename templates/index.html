@@ -19,6 +19,7 @@
     <div class="tabs">
       <button class="tab-btn active" data-tab="tab-single">🔑 Đơn lẻ</button>
       <button class="tab-btn" data-tab="tab-batch">📦 Batch</button>
+      <button class="tab-btn" data-tab="tab-checkacc">🔍 Check Acc</button>
       <button class="tab-btn" data-tab="tab-debug">🔬 Debug</button>
     </div>
 
@@ -111,6 +112,39 @@ Hoặc cách dòng:
         <div class="empty-state">
           <div class="icon">📦</div>
           Kết quả batch sẽ hiện ở đây
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== TAB: CHECK ACC ===== -->
+    <div id="tab-checkacc" class="tab-panel">
+      <div class="card">
+        <h3>Check Acc – Thông tin tài khoản</h3>
+        <form id="checkacc-form">
+          <textarea
+            id="checkacc-input"
+            placeholder='Dán cookie Netflix (JSON array hoặc chuỗi thuần) để xem chi tiết tài khoản:
+plan, giá, ngày thanh toán, payment, profiles, country, hold status...'
+          ></textarea>
+
+          <div class="format-hint">
+            Cần tối thiểu <code>NetflixId</code>. Lấy thông tin từ trang <code>account/membership</code> — giống lệnh <strong>/checkacc</strong> của bot.
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary" id="checkacc-btn">
+              <div class="spinner" id="checkacc-spinner"></div>
+              Kiểm tra
+            </button>
+            <button type="button" class="btn btn-clear" id="clear-checkacc">Xoá</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="checkacc-results">
+        <div class="empty-state">
+          <div class="icon">🔍</div>
+          Thông tin tài khoản sẽ hiện ở đây
         </div>
       </div>
     </div>

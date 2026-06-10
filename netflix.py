@@ -1,22 +1,19 @@
 """
 Netflix Login Link Generator
 
-Token NATIVE (CHÍNH): iOS FTL Falcor — path ["account","token","default"].
-  Endpoint: https://ios.prod.ftl.netflix.com/iosui/user/<version>
-  → token mà APP NETFLIX NATIVE chấp nhận auto-login (giống @nf_getlink_bot):
-    mở app → load vài giây → vào thẳng chọn profile.
-
-Token WEBVIEW (FALLBACK): GraphQL createAutoLoginToken (scope WEBVIEW_MOBILE_STREAMING).
-  → CHỈ redeem được trên trình duyệt web; app native sẽ hiện màn đăng nhập.
+Token NATIVE qua iOS FTL NFToken — path ["account","token","default"].
+  Endpoint: https://ios.prod.ftl.netflix.com/iosui/user/15.48
+  Logic port NGUYÊN từ bot tele (Netflix-Cookie-Checker-main/bot.py):
+    - GET với NFTOKEN_QUERY_PARAMS + NFTOKEN_HEADERS cố định (ESN/guid hardcode)
+    - version 15.48, gửi đầy đủ cookie
+    - token dùng cho CẢ link PC và Mobile (giống bot):
+        PC     → https://netflix.com/?nftoken=<token>
+        Mobile → https://netflix.com/unsupported?nftoken=<token>
 
 Ref: github.com/harshitkamboj/Netflix-NFToken-Generator
 """
 import json
 import re
-import random
-import string
-import time
-import uuid
 import urllib.parse
 from datetime import datetime, timezone
 
@@ -31,52 +28,51 @@ requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 COOKIE_KEYS = ("NetflixId", "SecureNetflixId", "nfvdid", "OptanonConsent", "flwssn", "gsid")
 
-# ─── GraphQL (FALLBACK — token webview, chỉ web redeem được) ─────────────────────
+# ─── NFToken API (iOS FTL) — token NATIVE "account.token.default" ─────────────────
+# Port NGUYÊN từ bot tele: version 15.48, ESN + guid hardcode, headers cố định.
+# 1 token này dùng cho CẢ link PC và Mobile.
+NFTOKEN_API_URL = "https://ios.prod.ftl.netflix.com/iosui/user/15.48"
 
-# Strategy = (graphql_url, scope, user_agent, description)
-STRATEGIES = [
-    (
-        "https://android13.prod.ftl.netflix.com/graphql",
-        {"scope": "WEBVIEW_MOBILE_STREAMING"},
-        "com.netflix.mediaclient/63884 (Linux; U; Android 13; ro; M2007J3SG; Build/TQ1A.230205.001.A2; Cronet/143.0.7445.0)",
-        "GraphQL WEBVIEW_MOBILE_STREAMING",
-    ),
-    (
-        "https://web.prod.ftl.netflix.com/graphql",
-        {"scope": "WEBVIEW_MOBILE_STREAMING"},
-        "com.netflix.mediaclient/63884 (Linux; U; Android 13; ro; M2007J3SG; Build/TQ1A.230205.001.A2; Cronet/143.0.7445.0)",
-        "GraphQL web.prod WEBVIEW_MOBILE_STREAMING",
-    ),
-]
-
-GRAPHQL_PAYLOAD_BASE = {
-    "operationName": "CreateAutoLoginToken",
-    "extensions": {
-        "persistedQuery": {
-            "version": 102,
-            "id": "76e97129-f4b5-41a0-a73c-12e674896849",
-        }
-    },
+NFTOKEN_QUERY_PARAMS = {
+    "appVersion": "15.48.1",
+    "config": '{"gamesInTrailersEnabled":"false","isTrailersEvidenceEnabled":"false","cdsMyListSortEnabled":"true","kidsBillboardEnabled":"true","addHorizontalBoxArtToVideoSummariesEnabled":"false","skOverlayTestEnabled":"false","homeFeedTestTVMovieListsEnabled":"false","baselineOnIpadEnabled":"true","trailersVideoIdLoggingFixEnabled":"true","postPlayPreviewsEnabled":"false","bypassContextualAssetsEnabled":"false","roarEnabled":"false","useSeason1AltLabelEnabled":"false","disableCDSSearchPaginationSectionKinds":["searchVideoCarousel"],"cdsSearchHorizontalPaginationEnabled":"true","searchPreQueryGamesEnabled":"true","kidsMyListEnabled":"true","billboardEnabled":"true","useCDSGalleryEnabled":"true","contentWarningEnabled":"true","videosInPopularGamesEnabled":"true","avifFormatEnabled":"false","sharksEnabled":"true"}',
+    "device_type": "NFAPPL-02-",
+    "esn": "NFAPPL-02-IPHONE8%3D1-PXA-02026U9VV5O8AUKEAEO8PUJETCGDD4PQRI9DEB3MDLEMD0EACM4CS78LMD334MN3MQ3NMJ8SU9O9MVGS6BJCURM1PH1MUTGDPF4S4200",
+    "idiom": "phone",
+    "iosVersion": "15.8.5",
+    "isTablet": "false",
+    "languages": "en-US",
+    "locale": "en-US",
+    "maxDeviceWidth": "375",
+    "model": "saget",
+    "modelType": "IPHONE8-1",
+    "odpAware": "true",
+    "path": '["account","token","default"]',
+    "pathFormat": "graph",
+    "pixelDensity": "2.0",
+    "progressive": "false",
+    "responseFormat": "json",
 }
 
-BASE_HEADERS_COMMON = {
-    "Accept": "multipart/mixed;deferSpec=20220824, application/graphql-response+json, application/json",
-    "Content-Type": "application/json",
-    "Origin": "https://www.netflix.com",
-    "Referer": "https://www.netflix.com/",
+NFTOKEN_HEADERS = {
+    "User-Agent": "Argo/15.48.1 (iPhone; iOS 15.8.5; Scale/2.00)",
+    "x-netflix.request.attempt": "1",
+    "x-netflix.request.client.user.guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
+    "x-netflix.context.profile-guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
+    "x-netflix.request.routing": '{"path":"/nq/mobile/nqios/~15.48.0/user","control_tag":"iosui_argo"}',
+    "x-netflix.context.app-version": "15.48.1",
+    "x-netflix.argo.translated": "true",
+    "x-netflix.context.form-factor": "phone",
+    "x-netflix.context.sdk-version": "2012.4",
+    "x-netflix.client.appversion": "15.48.1",
+    "x-netflix.client.type": "argo",
+    "x-netflix.client.ftl.esn": "NFAPPL-02-IPHONE8=1-PXA-02026U9VV5O8AUKEAEO8PUJETCGDD4PQRI9DEB3MDLEMD0EACM4CS78LMD334MN3MQ3NMJ8SU9O9MVGS6BJCURM1PH1MUTGDPF4S4200",
+    "x-netflix.context.locales": "en-US",
+    "accept-language": "en-US;q=1",
+    "x-netflix.context.os-version": "15.8.5",
+    "x-netflix.request.client.context": '{"appState":"foreground"}',
+    "x-netflix.context.ui-flavor": "argo",
 }
-
-# ─── iOS FTL (Falcor) — token NATIVE "account.token.default" ─────────────────────
-# Đây là token mà app Netflix native auto-login được (giống @nf_getlink_bot).
-# Thử lần lượt nhiều version; version nào còn sống thì dùng.
-FTL_VERSIONS = ("18.0", "17.0", "16.0", "15.48")
-
-_FTL_CONFIG_BLOB = (
-    '{"gamesInTrailersEnabled":"false","kidsBillboardEnabled":"true",'
-    '"baselineOnIpadEnabled":"true","postPlayPreviewsEnabled":"false","roarEnabled":"false",'
-    '"kidsMyListEnabled":"true","billboardEnabled":"true","useCDSGalleryEnabled":"true",'
-    '"contentWarningEnabled":"true","avifFormatEnabled":"false","sharksEnabled":"true"}'
-)
 
 
 # ─── Cookie parser ────────────────────────────────────────────────────────────
@@ -346,8 +342,8 @@ def _fmt_expiry(expiry) -> str:
 def _build_result(pc_token: str, mobile_token: str, expiry, method_name: str) -> dict:
     return {
         "ok": True,
-        "pc": PC_LOGIN_BASE + pc_token,         # web: token webview (đã xác nhận chạy web)
-        "mobile": MOBILE_LOGIN_BASE + mobile_token,  # app: token native (auto-login như bot)
+        "pc": PC_LOGIN_BASE + pc_token,
+        "mobile": MOBILE_LOGIN_BASE + mobile_token,
         "expiry": _fmt_expiry(expiry),
         "build_id": method_name,
         "strategy": method_name,
@@ -358,7 +354,8 @@ def _build_cookie_header(cookies_dict: dict) -> str:
     """
     Build cookie header gửi cho Netflix.
     Gửi đúng dạng TRÌNH DUYỆT lưu = URL-encoded (NetflixId/SecureNetflixId chứa = & .).
-    parse_cookies đã decode value → ở đây encode lại để khớp dạng gốc.
+    parse_cookies đã decode value → ở đây encode lại để khớp dạng gốc (giống cookie
+    bot gửi qua requests.Session).
     """
     parts = []
     for key in COOKIE_KEYS:
@@ -371,202 +368,129 @@ def _build_cookie_header(cookies_dict: dict) -> str:
     return "; ".join(parts)
 
 
-# ─── Token NATIVE qua iOS FTL (account.token.default) ────────────────────────
+# ─── NFToken (port từ bot tele create_nftoken) ────────────────────────────────
 
-def _gen_esn() -> str:
-    """ESN random mỗi request — hardcode ESN sẽ bị Netflix flag (403)."""
-    chars = string.digits + string.ascii_uppercase
-    return "NFAPPL-02-IPHONE8=1-PXA-" + "".join(random.choice(chars) for _ in range(128))
+def create_nftoken(cookies_dict: dict, attempts: int = 3) -> tuple:
+    """
+    Lấy token NATIVE qua iOS FTL account.token.default — logic giống hệt bot tele.
+    Trả về (token_data | None, error | None, logs).
+    """
+    if not cookies_dict.get("NetflixId"):
+        return None, "Không tìm thấy NetflixId trong cookie", []
 
-
-def _ftl_params(version: str, esn: str) -> dict:
-    return {
-        "appVersion": f"{version}.1", "config": _FTL_CONFIG_BLOB, "device_type": "NFAPPL-02-",
-        "esn": esn, "idiom": "phone", "iosVersion": "18.5", "isTablet": "false",
-        "languages": "en-US", "locale": "en-US", "maxDeviceWidth": "375", "model": "saget",
-        "modelType": "IPHONE8-1", "odpAware": "true",
-        "path": '["account","token","default"]', "pathFormat": "graph",
-        "progressive": "false", "responseFormat": "json",
-    }
-
-
-def _ftl_headers(version: str, esn: str, cookie_header: str) -> dict:
-    return {
-        "User-Agent": f"Argo/{version}.1 (iPhone; iOS 18.5; Scale/2.00)",
-        "x-netflix.request.routing": '{"path":"/nq/mobile/nqios/~' + version + '.0/user","control_tag":"iosui_argo"}',
-        "x-netflix.context.app-version": f"{version}.1",
-        "x-netflix.argo.translated": "true",
-        "x-netflix.context.form-factor": "phone",
-        "x-netflix.client.appversion": f"{version}.1",
-        "x-netflix.client.type": "argo",
-        "x-netflix.client.ftl.esn": esn,
-        "x-netflix.context.locales": "en-US",
-        "x-netflix.context.top-level-uuid": str(uuid.uuid4()).upper(),
-        "x-netflix.client.iosversion": "18.5",
-        "x-netflix.context.os-version": "18.5",
-        "x-netflix.context.ui-flavor": "argo",
-        "x-netflix.client.brand": "Apple",
-        "x-netflix.client.model": "iPhone",
-        "Cookie": cookie_header,
-    }
-
-
-def _fetch_token_ftl(cookies_dict: dict) -> dict:
-    """Lấy token NATIVE qua iOS FTL account.token.default. Thử nhiều version."""
     cookie_header = _build_cookie_header(cookies_dict)
     logs = []
-    for version in FTL_VERSIONS:
-        time.sleep(random.uniform(0.2, 0.6))
-        esn = _gen_esn()
-        url = f"https://ios.prod.ftl.netflix.com/iosui/user/{version}"
-        log = {"method": f"FTL iosui/{version}", "url": url, "status": None, "preview": ""}
+    last_error = "NFToken API error"
+
+    for attempt in range(1, attempts + 1):
+        log = {"method": f"NFToken iosui/15.48 (try {attempt})",
+               "url": NFTOKEN_API_URL, "status": None, "preview": ""}
         try:
-            resp = requests.get(url, params=_ftl_params(version, esn),
-                                headers=_ftl_headers(version, esn, cookie_header),
-                                timeout=20, verify=False)
+            headers = dict(NFTOKEN_HEADERS)
+            headers["Cookie"] = cookie_header
+            resp = requests.get(
+                NFTOKEN_API_URL,
+                params=NFTOKEN_QUERY_PARAMS,
+                headers=headers,
+                timeout=30,
+                verify=False,
+            )
             log["status"] = resp.status_code
             log["preview"] = (resp.text or "")[:300]
-        except requests.RequestException as e:
+            logs.append(log)
+
+            if resp.status_code == 403:
+                last_error = "403 Forbidden — cookie có thể đã hết hạn hoặc bị chặn"
+                continue
+            if resp.status_code == 429:
+                last_error = "429 Rate Limited — thử lại sau"
+                continue
+            if resp.status_code != 200:
+                last_error = f"HTTP {resp.status_code} error"
+                continue
+
+            try:
+                data = resp.json()
+            except Exception:
+                data = None
+
+            token = None
+            expires = None
+            if isinstance(data, dict):
+                token_data = (
+                    (((data.get("value") or {}).get("account") or {}).get("token") or {}).get("default")
+                    or {}
+                )
+                token = token_data.get("token")
+                expires = token_data.get("expires")
+            if not token:
+                m = re.search(r'"token"\s*:\s*"([^"]+)"', resp.text or "")
+                if m:
+                    token = m.group(1)
+
+            if token:
+                return {"token": token, "expires": expires}, None, logs
+
+            last_error = "Token không có trong response (cookie có thể đã hết hạn)"
+
+        except requests.exceptions.Timeout:
+            last_error = f"Timeout (attempt {attempt}/{attempts})"
+            log["status"] = "ERR"
+            log["preview"] = last_error
+            logs.append(log)
+        except requests.exceptions.RequestException as e:
+            last_error = f"Network error: {e}"
             log["status"] = "ERR"
             log["preview"] = str(e)[:200]
             logs.append(log)
-            continue
+        except Exception as e:
+            last_error = f"Unexpected error: {e}"
+            log["status"] = "ERR"
+            log["preview"] = str(e)[:200]
+            logs.append(log)
 
-        logs.append(log)
-        if resp.status_code != 200:
-            continue
-        try:
-            data = resp.json()
-        except Exception:
-            data = None
-
-        token = None
-        expires = None
-        if isinstance(data, dict):
-            try:
-                tk = (((data.get("value") or {}).get("account") or {}).get("token") or {}).get("default") or {}
-                token = tk.get("token")
-                expires = tk.get("expires")
-            except Exception:
-                token = None
-        if not token:
-            m = re.search(r'"token"\s*:\s*"([^"]+)"', resp.text or "")
-            if m:
-                token = m.group(1)
-        if token:
-            return {"token": token, "expires": expires, "logs": logs,
-                    "method": f"iOS FTL native (iosui/{version})"}
-    return {"token": None, "expires": None, "logs": logs, "method": None}
-
-
-# ─── GraphQL fallback (token webview) ────────────────────────────────────────
-
-def _fetch_token(cookies_dict: dict, strategy_idx: int) -> dict:
-    """Gửi request GraphQL createAutoLoginToken (token webview — fallback)."""
-    url, scope, user_agent, strategy_name = STRATEGIES[strategy_idx]
-
-    time.sleep(random.uniform(0.2, 0.8))
-
-    headers = dict(BASE_HEADERS_COMMON)
-    headers["User-Agent"] = user_agent
-    headers["Cookie"] = _build_cookie_header(cookies_dict)
-
-    payload = {**GRAPHQL_PAYLOAD_BASE, "variables": scope}
-
-    log = {"method": strategy_name, "url": url, "status": None, "preview": ""}
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=30, verify=False)
-        log["status"] = resp.status_code
-        log["preview"] = (resp.text or "")[:300]
-    except requests.RequestException as e:
-        log["status"] = "ERR"
-        log["preview"] = str(e)[:200]
-        return {"log": log, "token": None, "expires": None}
-
-    if resp.status_code != 200:
-        return {"log": log, "token": None, "expires": None}
-
-    try:
-        data = resp.json()
-    except Exception:
-        data = None
-
-    token = None
-    if isinstance(data, dict):
-        payload_data = data.get("data")
-        if isinstance(payload_data, dict):
-            token = payload_data.get("createAutoLoginToken")
-    if not token:
-        m = re.search(r'"createAutoLoginToken"\s*:\s*"([^"]+)"', resp.text or "")
-        if m:
-            token = m.group(1)
-
-    return {"log": log, "token": token, "expires": None}
+    return None, last_error, logs
 
 
 # ─── Main generation function ────────────────────────────────────────────────
 
 def get_login_links(cookies_dict: dict) -> dict:
     """
-    Tạo login link từ cookies (DUAL-TOKEN):
-      • Mobile link → token NATIVE (iOS FTL account.token.default) → app auto-login như @nf_getlink_bot.
-      • PC link     → token WEBVIEW (GraphQL createAutoLoginToken)  → đã xác nhận redeem trên web.
-    Lấy được token nào dùng token đó; thiếu loại nào thì lấp bằng loại kia.
+    Tạo login link từ cookies — giống hệt bot tele:
+      1 token NFToken (iOS FTL 15.48) dùng cho CẢ PC và Mobile.
+        PC     → https://netflix.com/?nftoken=<token>
+        Mobile → https://netflix.com/unsupported?nftoken=<token>
     """
     if not cookies_dict.get("NetflixId"):
         return {"ok": False, "error": "Thiếu cookie: NetflixId"}
 
-    all_debug = []
+    token_data, error, logs = create_nftoken(cookies_dict, attempts=3)
 
-    # 1) Token NATIVE qua iOS FTL (cho MOBILE — app auto-login)
-    ftl = _fetch_token_ftl(cookies_dict)
-    all_debug.extend(ftl["logs"])
-    native = ftl["token"]
-    expiry = ftl["expires"]
-
-    # 2) Token WEBVIEW qua GraphQL (cho PC/web)
-    webview = None
-    for sidx in range(len(STRATEGIES)):
-        result = _fetch_token(cookies_dict, sidx)
-        all_debug.append(result["log"])
-        if result["token"]:
-            webview = result["token"]
-            break
-        if result["log"].get("status") == "ERR":
-            break  # lỗi mạng → khỏi spam strategy còn lại
-
-    if not native and not webview:
+    if error or not token_data:
         return {
             "ok": False,
-            "error": "Cookies die (FTL native + GraphQL đều không cấp token)",
-            "debug": all_debug,
+            "error": error or "Cookies die (NFToken không cấp token)",
+            "debug": logs,
         }
 
-    pc_token = webview or native        # web: ưu tiên webview (đã xác nhận); thiếu thì dùng native
-    mobile_token = native or webview    # app: bắt buộc native; thiếu thì đành webview
-    if native and webview:
-        method = "FTL native (mobile) + GraphQL webview (pc)"
-    elif native:
-        method = "FTL native (cả 2 link)"
-    else:
-        method = "GraphQL webview (web-only — app native sẽ hiện login)"
+    token = token_data["token"]
+    expiry = token_data.get("expires")
+    method = "iOS FTL NFToken 15.48 (native)"
 
-    return {**_build_result(pc_token, mobile_token, expiry, method), "debug": all_debug}
+    # PC và Mobile DÙNG CHUNG 1 token (giống bot tele)
+    return {**_build_result(token, token, expiry, method), "debug": logs}
 
 
 # ─── Debug probe ──────────────────────────────────────────────────────────────
 
 def probe_endpoint(cookies_dict: dict, url: str, method: str = "POST") -> dict:
-    """Test endpoint tùy ý với cookies đã cho."""
-    headers = dict(BASE_HEADERS_COMMON)
-    headers["User-Agent"] = STRATEGIES[0][2]
+    """Test endpoint tùy ý với cookies đã cho (dùng header NFToken + cookie)."""
+    headers = dict(NFTOKEN_HEADERS)
     headers["Cookie"] = _build_cookie_header(cookies_dict)
-
-    payload = {**GRAPHQL_PAYLOAD_BASE, "variables": {"scope": "WEBVIEW_MOBILE_STREAMING"}}
 
     try:
         if method.upper() == "POST":
-            resp = requests.post(url, headers=headers, json=payload, timeout=30, verify=False)
+            resp = requests.post(url, headers=headers, timeout=30, verify=False)
         else:
             resp = requests.get(url, headers=headers, timeout=30, verify=False)
         body_preview = (resp.text or "")[:1500]
@@ -574,7 +498,7 @@ def probe_endpoint(cookies_dict: dict, url: str, method: str = "POST") -> dict:
             "status": resp.status_code,
             "body": body_preview,
             "cookies_sent": list(cookies_dict.keys()),
-            "token_found": ("createAutoLoginToken" in body_preview) or ('"token"' in body_preview),
+            "token_found": ('"token"' in body_preview) or ("createAutoLoginToken" in body_preview),
         }
     except Exception as e:
         return {
