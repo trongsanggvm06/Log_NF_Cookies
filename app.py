@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, jsonify
 import config
 from netflix import parse_cookies, parse_cookie_blocks, get_login_links, probe_endpoint, split_cookie_blocks
-from account_info import get_account_info, build_account_summary
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -116,31 +115,6 @@ def debug():
 
     result = probe_endpoint(cookies_dict, url, method)
     return jsonify(result)
-
-
-@app.route("/api/checkacc", methods=["POST"])
-def checkacc():
-    """
-    Kiểm tra thông tin tài khoản từ cookie (port từ bot tele /checkacc).
-    Body: { "cookies": "..." }
-    Trả về: { "ok": true, "account": {...} } hoặc { "ok": false, "error": "..." }
-    """
-    body = request.get_json(silent=True) or {}
-    raw = body.get("cookies", "").strip()
-    if not raw:
-        return jsonify({"ok": False, "error": "Vui lòng nhập cookie"}), 400
-
-    parsed_blocks = parse_cookie_blocks(raw)
-    cookies_dict = parsed_blocks[0] if parsed_blocks else parse_cookies(raw)
-    if not cookies_dict or not cookies_dict.get("NetflixId"):
-        return jsonify({"ok": False, "error": "Cookie không hợp lệ (thiếu NetflixId)"}), 400
-
-    info, error = get_account_info(cookies_dict)
-    if error or not info:
-        return jsonify({"ok": False, "error": error or "Không lấy được thông tin tài khoản"})
-
-    summary = build_account_summary(info)
-    return jsonify({"ok": True, "account": summary})
 
 
 if __name__ == "__main__":
