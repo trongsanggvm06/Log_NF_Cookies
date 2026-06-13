@@ -448,7 +448,7 @@ def create_nftoken(cookies_dict: dict, attempts: int = 3) -> tuple:
             # iOS FTL từ chối, hoặc account đã đăng xuất/đổi mật khẩu phía server.
             if isinstance(data, dict) and not (data.get("value") or {}):
                 last_error = ("Netflix không cấp token (HTTP 200, value rỗng) — account bị từ chối "
-                              "ở luồng iOS hoặc đã đăng xuất phía server, dù web có thể vẫn 'sống'")
+                              "Cookies Hỏng")
             else:
                 last_error = "Token không có trong response (cookie có thể đã hết hạn)"
 
