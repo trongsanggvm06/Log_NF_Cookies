@@ -99,7 +99,8 @@ def split_cookie_blocks(raw: str) -> list:
     Tách input thành nhiều block cookie.
     Hỗ trợ:
     - ---- separator
-    - JSON arrays
+    - Mỗi dòng 1 account: raw "key=...; NetflixId=..." HOẶC 1 JSON array/dòng — KỂ CẢ trộn lẫn
+    - JSON arrays (kể cả khi 1 array trải nhiều dòng)
     - Raw: SecureNetflixId= đứng trước NetflixId= (mỗi dòng riêng)
     - Raw: NetflixId= đứng đầu (mỗi dòng riêng)
     - Raw: mỗi cặp key=value riêng trên 1 dòng
@@ -113,7 +114,18 @@ def split_cookie_blocks(raw: str) -> list:
     if "----" in text:
         return [b.strip() for b in text.split("----") if b.strip()]
 
-    # 2. Multiple JSON arrays
+    # 2. Mỗi dòng là 1 account HOÀN CHỈNH — raw "nfvdid=...; NetflixId=..." HOẶC 1 JSON array/dòng,
+    #    KỂ CẢ khi TRỘN lẫn 2 kiểu trong cùng input. Điều kiện: ≥2 dòng và MỖI dòng tự parse ra
+    #    được NetflixId của riêng nó.
+    #    PHẢI check TRƯỚC bước gom JSON array (step 3): nếu không, các dòng raw bị bỏ sót — chỉ
+    #    nhận JSON array → "paste 4 ra 2". Cũng tránh tách theo vị trí NetflixId= gây lệch chéo cookie.
+    nonempty_lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+    if len(nonempty_lines) >= 2 and all(
+        parse_cookies(ln).get("NetflixId") for ln in nonempty_lines
+    ):
+        return nonempty_lines
+
+    # 3. Multiple JSON arrays
     blocks = []
     depth = 0
     start = -1
@@ -145,12 +157,12 @@ def split_cookie_blocks(raw: str) -> list:
     if len(blocks) >= 2:
         return blocks
 
-    # 3. Split bằng dòng trắng lớn trước (phòng batch multi-line)
+    # 4. Split bằng dòng trắng lớn (phòng batch multi-line: mỗi block trải nhiều dòng)
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     if len(paragraphs) >= 2:
         return paragraphs
 
-    # 4. Dòng bắt đầu bằng SecureNetflixId= HOẶC NetflixId= → mỗi dòng là 1 block
+    # 5. Dòng bắt đầu bằng SecureNetflixId= HOẶC NetflixId= → mỗi dòng là 1 block
     lines = text.split("\n")
     line_blocks = []
     current = []
@@ -176,7 +188,7 @@ def split_cookie_blocks(raw: str) -> list:
     if len(line_blocks) >= 2:
         return line_blocks
 
-    # 5. Raw: anchor NetflixId= hoặc SecureNetflixId= ở đầu dòng / sau \n
+    # 6. Raw: anchor NetflixId= hoặc SecureNetflixId= ở đầu dòng / sau \n
     anchor_pat = re.compile(
         r"(?:^|\n)\s*(NetflixId=|SecureNetflixId=)",
         re.IGNORECASE
@@ -193,7 +205,7 @@ def split_cookie_blocks(raw: str) -> list:
         if len(raw_blocks) >= 2:
             return raw_blocks
 
-    # 6. Nhiều NetflixId= trong text
+    # 7. Nhiều NetflixId= trong text
     netflix_positions = [m.start() for m in re.finditer(r"\bNetflixId=", text)]
     if len(netflix_positions) >= 2:
         raw_blocks = []
@@ -205,7 +217,7 @@ def split_cookie_blocks(raw: str) -> list:
         if len(raw_blocks) >= 2:
             return raw_blocks
 
-    # 7. Fallback: 1 block
+    # 8. Fallback: 1 block
     return [text]
 
 
@@ -431,7 +443,14 @@ def create_nftoken(cookies_dict: dict, attempts: int = 3) -> tuple:
             if token:
                 return {"token": token, "expires": expires}, None, logs
 
-            last_error = "Token không có trong response (cookie có thể đã hết hạn)"
+            # HTTP 200 nhưng value rỗng {} → Netflix NHẬN request nhưng KHÔNG cấp token cho
+            # account này (từ chối mềm). Hay gặp với cookie "sống" trên web nhưng luồng token
+            # iOS FTL từ chối, hoặc account đã đăng xuất/đổi mật khẩu phía server.
+            if isinstance(data, dict) and not (data.get("value") or {}):
+                last_error = ("Netflix không cấp token (HTTP 200, value rỗng) — account bị từ chối "
+                              "ở luồng iOS hoặc đã đăng xuất phía server, dù web có thể vẫn 'sống'")
+            else:
+                last_error = "Token không có trong response (cookie có thể đã hết hạn)"
 
         except requests.exceptions.Timeout:
             last_error = f"Timeout (attempt {attempt}/{attempts})"
