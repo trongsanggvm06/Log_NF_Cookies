@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex,nofollow" />
-  <title>Đang đăng nhập Netflix…</title>
+  <title>Signing in to Netflix…</title>
   <style>
     :root { --red:#E50914; --bg:#141414; --card:#1f1f1f; --text:#fff; --muted:#b3b3b3; }
     * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -44,19 +44,19 @@
     <div class="logo">NETFLIX</div>
 
     <div id="inapp-warn" class="warn">
-      ⚠️ Bạn đang mở trong trình duyệt của <b>Messenger/Facebook/Zalo</b>.
-      Hãy bấm menu <b>⋯</b> góc trên rồi chọn <b>“Mở bằng trình duyệt / Open in Chrome / Safari”</b>,
-      hoặc copy link bên dưới và dán vào Chrome/Safari.
+      ⚠️ You're opening this inside the <b>Messenger/Facebook/Zalo</b> browser.
+      Tap the <b>⋯</b> menu at the top and choose <b>“Open in Chrome / Safari / browser”</b>,
+      or copy the link below and paste it into Chrome/Safari.
       <button class="copy" id="copy-link">📋 Copy link</button>
     </div>
 
     <div class="spinner" id="spin"></div>
-    <h1 id="title">Đang mở Netflix…</h1>
-    <p id="desc">Trang sẽ tự chuyển sang Netflix sau 1 giây. Nếu không tự chuyển, bấm nút bên dưới.</p>
+    <h1 id="title">Opening Netflix…</h1>
+    <p id="desc">This page will open Netflix in 1 second. If it doesn't, tap the button below.</p>
 
-    <a class="btn" id="open-btn" href="#" rel="noopener">Mở Netflix ngay</a>
+    <a class="btn" id="open-btn" href="#" rel="noopener">Open Netflix now</a>
 
-    <div class="hint">Nếu vẫn lỗi: mở link trong <b>Chrome</b> hoặc <b>Safari</b> (đừng mở trong Messenger).</div>
+    <div class="hint">Still not working? Open the link in <b>Chrome</b> or <b>Safari</b> (not inside Messenger).</div>
   </div>
 
   <script>
@@ -80,8 +80,8 @@
     if (inApp) {
       document.getElementById("inapp-warn").style.display = "block";
       document.getElementById("spin").style.display = "none";
-      document.getElementById("title").textContent = "Mở bằng Chrome/Safari để đăng nhập";
-      document.getElementById("desc").textContent = "Trình duyệt trong app thường không đăng nhập được. Hãy mở link bằng Chrome hoặc Safari.";
+      document.getElementById("title").textContent = "Open in Chrome/Safari to sign in";
+      document.getElementById("desc").textContent = "In-app browsers usually can't sign in. Please open the link in Chrome or Safari.";
     } else {
       // Trình duyệt thật → tự chuyển sau 1s cho người dùng kịp thấy màn hình.
       setTimeout(goNetflix, 1000);
@@ -92,10 +92,10 @@
       copyBtn.addEventListener("click", function () {
         var full = window.location.href;
         (navigator.clipboard ? navigator.clipboard.writeText(full) : Promise.reject())
-          .then(function(){ copyBtn.textContent = "✅ Đã copy"; })
+          .then(function(){ copyBtn.textContent = "✅ Copied"; })
           .catch(function(){
             var ta=document.createElement("textarea"); ta.value=full; document.body.appendChild(ta);
-            ta.select(); try{document.execCommand("copy"); copyBtn.textContent="✅ Đã copy";}catch(e){} document.body.removeChild(ta);
+            ta.select(); try{document.execCommand("copy"); copyBtn.textContent="✅ Copied";}catch(e){} document.body.removeChild(ta);
           });
       });
     }
