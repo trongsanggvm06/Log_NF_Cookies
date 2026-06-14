@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex,nofollow" />
-  <title>Signing in to Netflix…</title>
+  <title>Redirecting…</title>
   <style>
-    :root { --red:#E50914; --bg:#141414; --card:#1f1f1f; --text:#fff; --muted:#b3b3b3; }
+    :root { --accent:#3d7eff; --bg:#1b1b1f; --text:#f2f2f2; --muted:#9a9aa2; }
     * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
     html,body { margin:0; height:100%; }
     body {
@@ -15,33 +15,31 @@
       display:flex; align-items:center; justify-content:center; padding:24px; text-align:center;
     }
     .box { max-width:420px; width:100%; }
-    .logo { color:var(--red); font-weight:800; font-size:30px; letter-spacing:.5px; margin-bottom:28px; }
     .spinner {
-      width:46px; height:46px; margin:0 auto 22px; border-radius:50%;
-      border:4px solid rgba(255,255,255,.15); border-top-color:var(--red);
+      width:44px; height:44px; margin:0 auto 22px; border-radius:50%;
+      border:4px solid rgba(255,255,255,.15); border-top-color:var(--accent);
       animation:spin .9s linear infinite;
     }
     @keyframes spin { to { transform:rotate(360deg); } }
-    h1 { font-size:20px; margin:0 0 8px; }
+    h1 { font-size:19px; margin:0 0 8px; font-weight:600; }
     p { color:var(--muted); font-size:14px; line-height:1.55; margin:0 0 22px; }
     .btn {
-      display:block; width:100%; padding:15px; border:0; border-radius:8px;
-      background:var(--red); color:#fff; font-size:17px; font-weight:700;
+      display:block; width:100%; padding:14px; border:0; border-radius:8px;
+      background:var(--accent); color:#fff; font-size:16px; font-weight:600;
       text-decoration:none; cursor:pointer; margin-bottom:12px;
     }
     .btn:active { opacity:.85; }
     .hint { font-size:12.5px; color:var(--muted); margin-top:18px; }
     .warn {
-      display:none; background:#3a2a00; border:1px solid #6b5200; color:#ffd277;
+      display:none; background:#2a2515; border:1px solid #5a4d20; color:#e6c878;
       border-radius:8px; padding:14px; font-size:13.5px; line-height:1.5; margin-bottom:18px; text-align:left;
     }
-    .warn b { color:#fff; }
-    .copy { background:#333; color:#fff; border:0; border-radius:6px; padding:9px 12px; font-size:13px; cursor:pointer; margin-top:8px; }
+    .warn b { color:var(--text); }
+    .copy { background:#33333a; color:#fff; border:0; border-radius:6px; padding:9px 12px; font-size:13px; cursor:pointer; margin-top:8px; }
   </style>
 </head>
 <body>
   <div class="box">
-    <div class="logo">NETFLIX</div>
 
     <div id="inapp-warn" class="warn">
       ⚠️ You're opening this inside the <b>Messenger/Facebook/Zalo</b> browser.
@@ -51,12 +49,12 @@
     </div>
 
     <div class="spinner" id="spin"></div>
-    <h1 id="title">Opening Netflix…</h1>
-    <p id="desc">This page will open Netflix in 1 second. If it doesn't, tap the button below.</p>
+    <h1 id="title">Redirecting…</h1>
+    <p id="desc">Please wait, you'll be taken to your destination in a second. If nothing happens, tap Continue.</p>
 
-    <a class="btn" id="open-btn" href="#" rel="noopener">Open Netflix now</a>
+    <a class="btn" id="open-btn" href="#" rel="noopener">Continue</a>
 
-    <div class="hint">Still not working? Open the link in <b>Chrome</b> or <b>Safari</b> (not inside Messenger).</div>
+    <div class="hint">Not working? Open this link in <b>Chrome</b> or <b>Safari</b> (not inside Messenger).</div>
   </div>
 
   <script>
@@ -71,8 +69,8 @@
     openBtn.setAttribute("href", NF_URL);
 
     // Điều hướng nội-trình-duyệt: KHÔNG kích App Link/Universal Link (khác với tap link từ app khác).
-    function goNetflix() { window.location.replace(NF_URL); }
-    openBtn.addEventListener("click", function (e) { e.preventDefault(); goNetflix(); });
+    function go() { window.location.replace(NF_URL); }
+    openBtn.addEventListener("click", function (e) { e.preventDefault(); go(); });
 
     // Phát hiện in-app webview (Messenger/FB/Zalo/Line…) — những nơi redeem hay fail.
     var ua = navigator.userAgent || "";
@@ -80,11 +78,11 @@
     if (inApp) {
       document.getElementById("inapp-warn").style.display = "block";
       document.getElementById("spin").style.display = "none";
-      document.getElementById("title").textContent = "Open in Chrome/Safari to sign in";
-      document.getElementById("desc").textContent = "In-app browsers usually can't sign in. Please open the link in Chrome or Safari.";
+      document.getElementById("title").textContent = "Open in Chrome / Safari";
+      document.getElementById("desc").textContent = "In-app browsers may not work. Please open this link in Chrome or Safari.";
     } else {
       // Trình duyệt thật → tự chuyển sau 1s cho người dùng kịp thấy màn hình.
-      setTimeout(goNetflix, 1000);
+      setTimeout(go, 1000);
     }
 
     var copyBtn = document.getElementById("copy-link");
