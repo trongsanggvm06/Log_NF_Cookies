@@ -6,9 +6,13 @@ Token NATIVE qua iOS FTL NFToken — path ["account","token","default"].
   Logic port NGUYÊN từ bot tele (Netflix-Cookie-Checker-main/bot.py):
     - GET với NFTOKEN_QUERY_PARAMS + NFTOKEN_HEADERS cố định (ESN/guid hardcode)
     - version 15.48, gửi đầy đủ cookie
-    - token dùng cho CẢ link PC và Mobile (giống bot):
-        PC     → https://netflix.com/?nftoken=<token>
-        Mobile → https://netflix.com/unsupported?nftoken=<token>
+    - 1 token dùng cho CẢ PC lẫn Mobile:
+        https://netflix.com/?nftoken=<token>
+
+Lý do 1 link cho tất cả: Netflix AASA chính thức (apple-app-site-association) loại
+trừ /unsupported khỏi Universal Link. Path "/* (root) thì KHÔNG bị exclude → iOS
+handoff sang app Netflix, Android mở app qua App Link, web/desktop set session
+cookie và redirect vào Netflix. 1 link dùng được cho cả 3 platform.
 
 Ref: github.com/harshitkamboj/Netflix-NFToken-Generator
 """
@@ -20,7 +24,7 @@ from datetime import datetime, timezone
 import requests
 from urllib3.exceptions import InsecureRequestWarning
 
-from config import PC_LOGIN_BASE, MOBILE_LOGIN_BASE
+from config import LOGIN_BASE
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
@@ -351,11 +355,15 @@ def _fmt_expiry(expiry) -> str:
         return str(expiry)
 
 
-def _build_result(pc_token: str, mobile_token: str, expiry, method_name: str) -> dict:
+def _build_result(token: str, expiry, method_name: str) -> dict:
+    url = LOGIN_BASE + token
     return {
         "ok": True,
-        "pc": PC_LOGIN_BASE + pc_token,
-        "mobile": MOBILE_LOGIN_BASE + mobile_token,
+        "token": token,   # raw token — app.py dùng để build link mobile /go (tránh app cướp link)
+        "url": url,
+        "pc": url,
+        # mobile mặc định = link netflix; app.py sẽ ghi đè bằng URL /go (landing page) khi có request context
+        "mobile": url,
         "expiry": _fmt_expiry(expiry),
         "build_id": method_name,
         "strategy": method_name,
@@ -475,10 +483,13 @@ def create_nftoken(cookies_dict: dict, attempts: int = 3) -> tuple:
 
 def get_login_links(cookies_dict: dict) -> dict:
     """
-    Tạo login link từ cookies — giống hệt bot tele:
-      1 token NFToken (iOS FTL 15.48) dùng cho CẢ PC và Mobile.
-        PC     → https://netflix.com/?nftoken=<token>
-        Mobile → https://netflix.com/unsupported?nftoken=<token>
+    Tạo 1 login link dùng được cho cả PC, Android, iOS:
+        https://netflix.com/?nftoken=<token>
+
+    - PC/Desktop: mở trong trình duyệt → Netflix web set session → auto login.
+    - iOS: click/paste vào Safari → Universal Link handoff sang app Netflix → auto login.
+    - Android: click/paste vào Chrome → App Link mở app Netflix → auto login.
+    Token có hiệu lực ~1 giờ, không bị bind IP/region/device.
     """
     if not cookies_dict.get("NetflixId"):
         return {"ok": False, "error": "Thiếu cookie: NetflixId"}
@@ -496,8 +507,7 @@ def get_login_links(cookies_dict: dict) -> dict:
     expiry = token_data.get("expires")
     method = "iOS FTL NFToken 15.48 (native)"
 
-    # PC và Mobile DÙNG CHUNG 1 token (giống bot tele)
-    return {**_build_result(token, token, expiry, method), "debug": logs}
+    return {**_build_result(token, expiry, method), "debug": logs}
 
 
 # ─── Debug probe ──────────────────────────────────────────────────────────────

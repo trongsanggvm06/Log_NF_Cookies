@@ -77,6 +77,9 @@ function buildCard(data, index = null) {
     card.dataset.copyCount = "0";
     card.dataset.copyLimit = String(COPY_LIMIT);
     const indexBadge = index !== null ? `<span class="badge badge-index">#${index}</span>` : "";
+    // 2 link: PC = netflix.com trực tiếp; Mobile = qua landing page /go (né app cướp link → NSES-404)
+    const pcUrl = data.pc || data.url || data.mobile;
+    const mobileUrl = data.mobile || data.pc || data.url;
     card.innerHTML = `
       <div class="result-header">
         ${indexBadge}
@@ -85,23 +88,29 @@ function buildCard(data, index = null) {
       </div>
 
       <div class="link-row">
-        <span class="link-label">💻 PC / Tablet / iPad</span>
-        <a class="link-url" href="${data.pc}" target="_blank" title="${data.pc}">${data.pc}</a>
-        <button class="btn btn-sm btn-copy" data-copy-text="${data.pc}" onclick="copyWithQuota(this)">Copy</button>
+        <span class="link-label">💻 Link PC</span>
+        <a class="link-url" href="${pcUrl}" target="_blank" title="${pcUrl}">${pcUrl}</a>
+        <button class="btn btn-sm btn-copy" data-copy-text="${pcUrl}" onclick="copyWithQuota(this)">Copy</button>
       </div>
 
       <div class="link-row">
-        <span class="link-label">📱 Điện thoại</span>
-        <a class="link-url" href="${data.mobile}" target="_blank" title="${data.mobile}">${data.mobile}</a>
-        <button class="btn btn-sm btn-copy" data-copy-text="${data.mobile}" onclick="copyWithQuota(this)">Copy</button>
-      </div>
-      <div class="mobile-hint">
-        💡 <strong>Điện thoại:</strong> dùng link <strong>📱</strong> — dán vào Chrome/Safari sẽ tự mở app Netflix.<br>
-        💻 <strong>Tablet / iPad / Máy tính:</strong> dùng link <strong>💻</strong> — mở bằng trình duyệt, đăng nhập thẳng vào Netflix web (không cần app).
+        <span class="link-label">📱 Link Điện thoại</span>
+        <a class="link-url" href="${mobileUrl}" target="_blank" title="${mobileUrl}">${mobileUrl}</a>
+        <button class="btn btn-sm btn-copy" data-copy-text="${mobileUrl}" onclick="copyWithQuota(this)">Copy</button>
+        <span class="copy-quota-bar">
+          📋 <span class="copy-count">0</span>/${COPY_LIMIT}
+        </span>
       </div>
 
-      <div class="copy-quota-bar">
-        📋 Đã copy: <span class="copy-count">0</span>/${COPY_LIMIT} lần (PC + Mobile chung)
+      <div class="usage-grid">
+        <div class="usage-item">
+          <div class="usage-icon">💻</div>
+          <div class="usage-title">PC/Laptop: gửi <b>Link PC</b> → mở trực tiếp</div>
+        </div>
+        <div class="usage-item">
+          <div class="usage-icon">📱</div>
+          <div class="usage-title">iOS + Android: gửi <b>Link Điện thoại</b> → dán vào Chrome/Safari</div>
+        </div>
       </div>
 
       <div class="expiry-row">⏰ Hết hạn: <span>${data.expiry}</span></div>

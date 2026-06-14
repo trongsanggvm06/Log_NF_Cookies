@@ -6,11 +6,14 @@ SECRET_KEY = "netflix-login-app-2024"
 APP_TITLE = "Netflix Login Link Generator"
 APP_SUBTITLE = "Chuyển đổi Cookie Netflix thành Link Đăng Nhập"
 
-# --- Tuỳ chỉnh URL đăng nhập (giống hệt bot tele) ---
-# PC: root path — mở trên trình duyệt, đăng nhập thẳng vào Netflix web
-PC_LOGIN_BASE = "https://netflix.com/?nftoken="
-# Mobile: DÙNG /unsupported - trang Netflix xử lý nftoken cho mobile và trigger mở app
-MOBILE_LOGIN_BASE = "https://netflix.com/unsupported?nftoken="
+# --- Tuỳ chỉnh URL đăng nhập ---
+# 1 link duy nhất dùng cho CẢ PC và Mobile — Netflix AASA không exclude path "/*"
+# nên iOS sẽ mở app Netflix khi user click, Android cũng vào app. Web/desktop tự
+# redirect vào session.
+LOGIN_BASE = "https://netflix.com/?nftoken="
+# Alias giữ tên cũ để tương thích code cũ (nếu có), trỏ về cùng LOGIN_BASE.
+PC_LOGIN_BASE = LOGIN_BASE
+MOBILE_LOGIN_BASE = LOGIN_BASE
 
 # ─── ENDPOINT TUỲ CHỈNH ────────────────────────────────────────────────────
 # Nếu bạn biết đúng endpoint Netflix, điền vào đây.
