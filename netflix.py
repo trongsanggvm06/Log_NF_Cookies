@@ -657,6 +657,13 @@ def _server_redeem_nftoken(token: str) -> dict:
       message: thông báo thân thiện
     """
     last_err = "redeem failed"
+    token_safe = urllib.parse.quote(token, safe="")
+    nf_token_url = "https://www.netflix.com/?nftoken=" + token_safe
+    # Lưu ý: redirect trỏ tới `?nftoken=...` (KHÔNG phải /browse) vì AASA của
+    # netflix.com cấu hình pattern /?* (bất kỳ path / có query) — iOS/Android
+    # sẽ mở app Netflix qua Universal Link/App Link thay vì Safari. App Netflix
+    # tự parse nftoken từ URL và redeem thành session trong app → auto login.
+    # Trên desktop/browser, Netflix web cũng parse ?nftoken= để set session.
     for build_id in NETFLIX_BUILDS:
         url = f"https://www.netflix.com/api/shakti/{build_id}/loginWithToken"
         headers = dict(REDEEM_HEADERS_BASE)
@@ -697,17 +704,18 @@ def _server_redeem_nftoken(token: str) -> dict:
                 continue
             return {
                 "ok": True,
-                "redirect": "https://www.netflix.com/browse",
+                "redirect": nf_token_url,
                 "set_cookies": cookies_out,
                 "user": (user.get("email") if isinstance(user, dict) else None),
                 "build_id": build_id,
                 "message": "Redeem thành công — đang mở Netflix…",
             }
         last_err = f"HTTP {resp.status_code} (build {build_id})"
-    # Fallback cuối: trả URL /?nftoken=… để client tự redeem từ browser
+    # Fallback cuối: trả URL /?nftoken=… để client tự redeem từ browser.
+    # iOS/Android sẽ mở app Netflix qua Universal Link vì AASA match /?*.
     return {
         "ok": False,
-        "redirect": "https://www.netflix.com/?nftoken=" + urllib.parse.quote(token, safe=""),
+        "redirect": nf_token_url,
         "error": last_err,
         "fallback": True,
         "message": "Server không redeem được NFToken — sẽ thử mở trực tiếp netflix.com",
