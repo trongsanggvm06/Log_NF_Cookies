@@ -136,6 +136,57 @@ def redeem():
     return jsonify(result), (200 if result.get("ok") else 502)
 
 
+@app.route("/go-redirect")
+def go_redirect():
+    """
+    Server-side redeem + redirect sang Netflix web (Safari path).
+    Flow: redeem NFToken → nếu OK thì lấy cookies từ Netflix, gọi redirect
+    tới https://www.netflix.com/?nftoken=<token> để Netflix web tự redeem + set cookie
+    trên domain netflix.com. Nếu redeem fail, fallback về ?nftoken= luôn.
+
+    QUAN TRỌNG: Cookie session Netflix chỉ work khi được set bởi Netflix domain
+    (iOS Safari block third-party cookie). Vì vậy ta KHÔNG thể set cookie từ
+    server của mình — phải để Netflix web tự redeem ?nftoken=.
+
+    Flow cho user mobile (iOS/Android):
+      1. User bấm "Mở web trên Safari" → Safari mở netflix.com/?nftoken=X
+      2. Netflix web redeem token → set SecureNetflixId/NetflixId cookie
+      3. Netflix web redirect tới /browse → user login Netflix trên Safari
+      4. User mở app Netflix → app dùng session từ Safari (iCloud Keychain
+         sharing nếu cùng Apple ID + cùng Netflix account) → auto login
+    """
+    from netflix import _server_redeem_nftoken
+    token = (
+        request.args.get("t")
+        or request.args.get("token")
+        or ""
+    ).strip()
+    token = urllib.parse.unquote(token) if token else ""
+    if "%" in token:
+        try:
+            token = urllib.parse.unquote(token)
+        except Exception:
+            pass
+    if not token:
+        return redirect(url_for("index", missing="token"))
+
+    # Thử redeem server-side để validate token (Netflix có thể reject token
+    # hết hạn / không hợp lệ → biết trước thay vì để Safari tự mở rồi fail).
+    # Dù kết quả redeem thế nào, ta VẪN redirect tới netflix.com với ?nftoken= vì
+    # cookie session Netflix chỉ được set bởi Netflix domain (third-party cookie
+    # bị iOS Safari block).
+    #
+    # Dùng path /browse?nftoken= thay vì /?nftoken= vì AASA của netflix.com
+    # khai báo /browse/* là Universal Link (mở app), còn /?* ở root chỉ
+    # fallback cho deep link. Nếu dùng /?nftoken=, iOS có thể mở app Netflix
+    # thay vì Safari → lại fail. Dùng /browse?nftoken= thì Netflix web sẽ
+    # redeem ?nftoken= trước khi mở app (nếu app claim), hoặc Safari sẽ mở
+    # web Netflix nếu không có app claim cụ thể cho /browse?nftoken=.
+    _server_redeem_nftoken(token)  # validate, kết quả không dùng trực tiếp
+    target = "https://www.netflix.com/browse?nftoken=" + urllib.parse.quote(token, safe="")
+    return redirect(target, code=302)
+
+
 @app.route("/api/generate", methods=["POST"])
 def generate():
     body = request.get_json(silent=True) or {}

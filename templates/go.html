@@ -81,13 +81,23 @@
     var TOKEN = {{ token | tojson }};
     var HOST = {{ host | tojson }};
     // URL Universal Link: AASA của netflix.com cho phép pattern /?* (path / + query)
-    // mà KHÔNG nằm trong exclude list → iOS sẽ mở app Netflix qua Universal Link,
-    // Android mở app qua App Link. App Netflix tự parse ?nftoken= từ URL → redeem
-    // thành session trong app → auto login (không cần share cookie từ browser).
-    // Trên desktop, Netflix web cũng parse ?nftoken= → set session → login web.
+    // mà KHÔNG nằm trong exclude list → iOS sẽ mở app Netflix qua Universal Link.
+    // Tuy nhiên app Netflix iOS KHÔNG redeem ?nftoken= ở deep link (chỉ web redeem)
+    // nên app mở nhưng không login. Vì vậy flow thực tế phải dùng SAFARI trước để
+    // Netflix web redeem token + set cookie trên netflix.com, sau đó mở app.
+    // App Netflix sẽ dùng ASWebAuthenticationSession / iCloud Keychain nếu user
+    // đã từng login app với cùng Apple ID.
     var NF_TOKEN_URL = "https://www.netflix.com/?nftoken=" + encodeURIComponent(TOKEN);
     // Fallback cho browser không có app Netflix hoặc user muốn web.
     var NF_WEB_URL = "https://www.netflix.com/browse";
+    // Custom URL scheme của Netflix (DEPRECATED từ 2024+ trên iOS mới nhưng vẫn thử).
+    // Format: nflx://www.netflix.com/browse — sẽ mở app Netflix trực tiếp nếu device còn support.
+    var NF_CUSTOM_URL = "nflx://www.netflix.com/browse";
+    // Safari path: mở trang web Netflix trong Safari (KHÔNG phải app) để Netflix web
+    // redeem ?nftoken= → set cookie trên domain netflix.com trong Safari. Sau đó
+    // user mở app Netflix → app có thể dùng session từ Safari (qua iCloud Keychain)
+    // nếu cùng Apple ID và cùng Netflix account. Đây là flow Netflix support.
+    var NF_SAFARI_URL = NF_TOKEN_URL;
 
     var ua = navigator.userAgent || "";
     var isIOS = /iPhone|iPad|iPod/i.test(ua);
@@ -114,28 +124,51 @@
       secondaryBtn.style.display = "none";
       hintEl.style.display = "none";
     }
-    // ─── Mobile (iOS/Android): mở app Netflix qua Universal/App Link ─────
-    // iOS Safari KHÔNG cho phép JS tự trigger Universal Link mà không có user
-    // interaction (iOS 17+). Vì vậy cần hiển thị nút và để user bấm.
-    // Khi user bấm <a href="netflix.com/?nftoken=..."> trên iOS Safari,
-    // hệ thống sẽ hỏi "Open in App?" — bấm Open → vào app Netflix login sẵn.
+    // ─── Mobile (iOS/Android): thử 3 path để tìm cái work ──────────────
+    // 1) Universal Link /?nftoken= → mở app (đã test: app mở nhưng KHÔNG redeem)
+    // 2) Custom URL scheme nflx:// → mở app qua scheme (deprecated, có thể fail)
+    // 3) Safari path: mở web trong Safari để set cookie, sau đó user mở app
     else if (isMobile) {
       badge.textContent = isIOS ? "📱 iPhone / iPad" : "📱 Android";
       titleEl.textContent = "Mở Netflix";
       descEl.textContent = "Bấm nút bên dưới để mở app Netflix đã đăng nhập sẵn.";
-      statusBox.className = "status ok";
-      statusBox.innerHTML = "✅ Sẵn sàng! Nút bên dưới sẽ mở <b>app Netflix</b> trên thiết bị của bạn (tự đăng nhập, không cần nhập email/mật khẩu).";
 
-      // Nút chính: mở app Netflix qua Universal Link.
+      // Status box giải thích flow 3 bước cho user
+      statusBox.className = "status warn";
+      statusBox.innerHTML = "⚠️ <b>Lưu ý quan trọng (iOS/Android):</b><br>"
+        + "1️⃣ Bấm <b>Mở web trên Safari</b> trước → Netflix web tự đăng nhập.<br>"
+        + "2️⃣ <b>KHÔNG đóng Safari</b> — giữ tab Netflix đang login.<br>"
+        + "3️⃣ Bấm <b>Mở app Netflix</b> → app sẽ tự đăng nhập bằng session từ Safari (qua iCloud Keychain).<br><br>"
+        + "Nếu app vẫn yêu cầu login: đăng nhập 1 lần trong app với cùng account, lần sau sẽ tự động.";
+
+      // Nút chính: mở app Netflix qua Universal Link
       primaryBtn.href = NF_TOKEN_URL;
       primaryText.textContent = isIOS ? "📱 Mở app Netflix" : "📱 Mở app Netflix";
       primaryBtn.className = "btn";
       primaryBtn.style.display = "flex";
 
-      // Nút phụ: mở web (cho user muốn xem trên browser).
-      secondaryBtn.href = NF_WEB_URL;
-      secondaryText.textContent = "🌐 Mở Netflix trên web";
+      // Nút phụ: mở web trong Safari (set cookie trước)
+      // Dùng /go-redirect để server redeem NFToken + redirect sang netflix.com/browse.
+      // Safari sẽ thấy netflix.com với session cookie → login web Netflix.
+      // Sau đó user mở app Netflix → app dùng iCloud Keychain / ASWebAuthenticationSession
+      // để reuse session → auto login.
+      var scheme = "http";
+      try {
+        scheme = (location.protocol || "https:").replace(":", "");
+      } catch (e) {}
+      var serverOrigin = scheme + "://" + HOST;
+      secondaryBtn.href = serverOrigin + "/go-redirect?t=" + encodeURIComponent(TOKEN);
+      secondaryText.textContent = "🌐 Mở web trên Safari";
+      secondaryBtn.className = "btn btn-secondary";
       secondaryBtn.style.display = "flex";
+
+      // Nút thứ 3: thử nflx:// custom scheme (deprecated, có thể không work)
+      // Hiển thị dưới dạng link nhỏ cho user test thử
+      var extraHtml = '<div style="margin-top:18px;font-size:12px;color:var(--muted);">'
+        + 'Thử nghiệm: <a href="' + NF_CUSTOM_URL + '" style="color:var(--accent);text-decoration:underline;">nflx:// mở app (cũ)</a>'
+        + ' · <a href="' + NF_WEB_URL + '" style="color:var(--muted);text-decoration:underline;">/browse (không token)</a>'
+        + '</div>';
+      hintEl.innerHTML = extraHtml;
     }
     // ─── Desktop: mở thẳng web Netflix (Netflix web parse ?nftoken= → login) ─
     else {
