@@ -183,8 +183,32 @@ def go_redirect():
     # redeem ?nftoken= trước khi mở app (nếu app claim), hoặc Safari sẽ mở
     # web Netflix nếu không có app claim cụ thể cho /browse?nftoken=.
     _server_redeem_nftoken(token)  # validate, kết quả không dùng trực tiếp
-    target = "https://www.netflix.com/browse?nftoken=" + urllib.parse.quote(token, safe="")
-    return redirect(target, code=302)
+    token_safe = urllib.parse.quote(token, safe="")
+    target = "https://www.netflix.com/browse?nftoken=" + token_safe
+
+    # Trả HTML với auto-redirect sang Netflix. Path /browse KHÔNG match AASA
+    # /browse/* (vì thiếu /) → iOS sẽ mở Safari, không phải app. Safari load
+    # netflix.com/browse?nftoken=X → Netflix web redeem + set cookie session
+    # trên domain netflix.com → user login web Netflix.
+    return (
+        '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+        '<title>Đang mở Netflix…</title>'
+        '<meta http-equiv="refresh" content="0; url=' + target + '">'
+        '<style>body{background:#0b0b0f;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:24px}'
+        'h1{font-size:18px;margin:0 0 12px}p{color:#9a9aa2;font-size:14px;line-height:1.5;margin:0 0 20px}'
+        '.spinner{width:40px;height:40px;margin:0 auto 20px;border:4px solid rgba(255,255,255,.12);border-top-color:#e50914;border-radius:50%;animation:spin .9s linear infinite}'
+        '@keyframes spin{to{transform:rotate(360deg)}}'
+        'a{display:inline-block;background:#e50914;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:12px}</style>'
+        '</head><body><div style="max-width:360px"><div class="spinner"></div>'
+        '<h1>Đang mở Netflix…</h1><p>Nếu không tự chuyển, bấm nút bên dưới:</p>'
+        '<a href="' + target + '" rel="noopener">Mở Netflix</a>'
+        '</div><script>setTimeout(function(){window.location.replace("' + target + '");},100);</script>'
+        '</body></html>'
+    ), 200, {
+        "X-Frame-Options": "DENY",
+        "Content-Security-Policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'",
+    }
 
 
 @app.route("/api/generate", methods=["POST"])
