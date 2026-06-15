@@ -86,12 +86,24 @@ function buildCard(data, index = null) {
     //           (Netflix App Link claim path /unsupported → mở app → app redeem token)
     const webUrl = data.web || ("https://www.netflix.com/?nftoken=" + encodeURIComponent(data.token || ""));
     const appUrl = data.app || data.mobile || ("https://www.netflix.com/unsupported?nftoken=" + encodeURIComponent(data.token || ""));
+    // Hiển thị warning nếu token từ iOS FTL (sẽ 404 trên mobile browser)
+    const sourceLabel = (() => {
+      const src = data.token_source || "";
+      if (src.startsWith("web-shakti")) return { txt: "🌐 Web Shakti (an toàn cho mọi thiết bị)", cls: "src-web" };
+      if (src.startsWith("ios-ftl")) return { txt: "📱 iOS FTL (CHỈ dùng cho iOS app / PC, mobile browser sẽ 404)", cls: "src-ios" };
+      return { txt: "❓ Unknown source", cls: "src-unknown" };
+    })();
+    const warningBox = data.warning
+      ? `<div class="warning-box">${data.warning}</div>` : "";
     card.innerHTML = `
       <div class="result-header">
         ${indexBadge}
         <span class="badge badge-ok">✓ Thành công</span>
         <span class="result-title">Build: ${data.build_id || "—"}</span>
       </div>
+
+      <div class="source-tag ${sourceLabel.cls}">${sourceLabel.txt}</div>
+      ${warningBox}
 
       <div class="link-row link-row-primary">
         <span class="link-label">🌐 Web (iOS / PC)</span>

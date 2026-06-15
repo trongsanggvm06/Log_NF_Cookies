@@ -259,6 +259,42 @@ textarea::placeholder { color: #555; }
 
 .expiry-row span { color: #ffd700; }
 
+.source-tag {
+  display: inline-block;
+  margin: 6px 0 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: .2px;
+}
+.source-tag.src-web {
+  background: rgba(70, 211, 105, 0.15);
+  color: #6fdc8a;
+  border: 1px solid rgba(70, 211, 105, 0.4);
+}
+.source-tag.src-ios {
+  background: rgba(255, 167, 38, 0.15);
+  color: #ffb74d;
+  border: 1px solid rgba(255, 167, 38, 0.4);
+}
+.source-tag.src-unknown {
+  background: rgba(158, 158, 158, 0.15);
+  color: #bdbdbd;
+  border: 1px solid rgba(158, 158, 158, 0.4);
+}
+
+.warning-box {
+  margin: 6px 0 10px;
+  padding: 10px 12px;
+  background: rgba(255, 87, 34, 0.12);
+  border: 1px solid rgba(255, 87, 34, 0.45);
+  border-radius: var(--radius);
+  color: #ffab91;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
 .mobile-hint {
   margin-top: 6px;
   font-size: 0.72rem;

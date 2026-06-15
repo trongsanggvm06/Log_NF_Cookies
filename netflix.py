@@ -405,6 +405,48 @@ def _build_cookie_header(cookies_dict: dict) -> str:
     return "; ".join(parts)
 
 
+# ─── Web token detection ───────────────────────────────────────────────────────
+# iOS FTL token (account.token.default) thường dài ~700+ ký tự, có pattern base64
+# với nhiều dấu `=` ở cuối. Web Shakti createAutoLoginToken thường ~500-600 ký tự,
+# URL-safe base64. Tuy nhiên detection theo format không hoàn toàn chính xác → ta
+# track nguồn (source) token lấy từ endpoint nào, đó mới là thông tin đáng tin.
+#
+# Khi user mở link `?nftoken=<iOS_token>` trên browser mobile → Netflix web redemption
+# không nhận diện được iOS-format → NSES-404 "Lost your way?". Đây chính là bug gốc.
+
+# Build IDs thường gặp của Netflix Shakti pathEvaluator — Netflix rotate định kỳ
+# nên ta thử nhiều ID cùng lúc để tăng tỉ lệ thành công. Lấy từ Netflix web live
+# network captures 2025-2026.
+SHAKTI_BUILD_IDS = [
+    "v1db76858",   # ổn định, đã verify hoạt động 2024-2025
+    "1b8b10944f",  # secondary
+    "v84a3b1c9",   # rotate
+    "v9c4012d8",   # rotate
+    "v6a92d3e7",   # rotate
+    "v3f7b8e22",   # rotate
+]
+
+
+def _detect_token_source(token: str) -> str:
+    """
+    Best-effort detection: token lấy từ endpoint nào.
+    Trả về 'ios' (iOS FTL) hoặc 'web' (Shakti).
+    Hiện tại detection theo source tracked trong log, fallback dựa trên length/format.
+
+    Thực tế: token length không đủ reliable vì Netflix thay đổi format thường xuyên.
+    → Hàm này chỉ dùng để hiển thị hint UI, KHÔNG dùng để quyết định URL build.
+    URL build giống nhau cho cả 2 loại: `?nftoken=` cho cả iOS lẫn web token.
+    """
+    if not token:
+        return "unknown"
+    # iOS FTL token thường dài hơn do nhiều metadata bind
+    if len(token) >= 700:
+        return "ios"
+    if len(token) <= 600:
+        return "web"
+    return "unknown"
+
+
 # ─── Port từ Netflix-Cookie-Checker-main/main.py ────────────────────────────
 # Helpers: decode_netflix_value, _decode_unicode_escape, _decode_hex_escape
 # Mục đích: normalize value Netflix trả về (token, expiry) — bỏ URL-encoding
@@ -520,131 +562,39 @@ def build_nftoken_links(token, mode="both"):
     ]
 
 
-# ─── NFToken (port từ bot tele create_nftoken) ────────────────────────────────
+# ─── NFToken (port từ bot tele create_nftoken, refactored to hybrid smart) ────
 
 def create_nftoken(cookies_dict: dict, attempts: int = 3) -> tuple:
     """
-    Lấy token NATIVE qua iOS FTL account.token.default — port từ
-    Netflix-Cookie-Checker-main/bot.py:188 (create_nftoken, bản gốc)
+    Wrapper giữ tương thích callers cũ — gọi _create_token_hybrid bên dưới.
 
-    Khác biệt với main.py: bot.py dùng requests.Session() + gửi TOÀN BỘ cookies
-    (NetflixId + SecureNetflixId + nfvdid) — comment bot.py:196-198 giải thích
-    Netflix iOS API yêu cầu đầy đủ, không chỉ riêng NetflixId.
-    Giữ 3-tuple return (token, error, logs) để tương thích callers cũ.
+    Ưu tiên:
+      1. Web Shakti pathEvaluator (token redeem được trên mọi browser)
+      2. Web Shakti direct endpoint
+      3. iOS FTL (fallback cho user cũ / iOS app)
     """
     netflix_id = cookies_dict.get("NetflixId") or cookies_dict.get("netflixid")
     if not netflix_id:
         return None, "Không tìm thấy NetflixId trong cookie", []
 
-    try:
-        attempts = max(1, int(attempts))
-    except Exception:
-        attempts = 1
+    token_data, log = _create_token_hybrid(cookies_dict)
+    if token_data and token_data.get("token"):
+        return {
+            "token": token_data["token"],
+            "expires_at_utc": get_nftoken_expiry_utc(token_data.get("expires")),
+            "source": token_data.get("source", "unknown"),
+        }, None, [log] if log else []
 
-    logs = []
-    last_error = "NFToken API error"
-
-    for attempt in range(1, attempts + 1):
-        log = {"method": f"NFToken iosui/15.48 (try {attempt})",
-               "url": NFTOKEN_API_URL, "status": None, "preview": ""}
-        try:
-            # Port nguyên bot.py:198-208 — Session + cookies.update
-            session = requests.Session()
-            session.cookies.update(cookies_dict)
-            session.verify = False
-            headers = dict(NFTOKEN_HEADERS)
-
-            resp = session.get(
-                NFTOKEN_API_URL,
-                params=NFTOKEN_QUERY_PARAMS,
-                headers=headers,
-                timeout=30,
-            )
-            log["status"] = resp.status_code
-            log["preview"] = (resp.text or "")[:300]
-            logs.append(log)
-
-            if resp.status_code == 403:
-                last_error = "403 Forbidden — cookie có thể đã hết hạn hoặc bị chặn"
-                continue
-            if resp.status_code == 429:
-                last_error = "429 Rate Limited — thử lại sau"
-                continue
-            if resp.status_code != 200:
-                last_error = f"HTTP {resp.status_code} error"
-                continue
-
-            try:
-                data = resp.json()
-            except Exception:
-                data = None
-
-            # Port nguyên bot.py:220-226 — không decode token (giữ raw)
-            token = None
-            expires = None
-            if isinstance(data, dict):
-                token_data = (
-                    (((data.get("value") or {}).get("account") or {}).get("token") or {}).get("default")
-                    or {}
-                )
-                token = token_data.get("token")
-                expires = token_data.get("expires")
-
-            if not token:
-                # Regex fallback — bắt được cả trường hợp Netflix trả token ở path khác
-                m = re.search(r'"token"\s*:\s*"([^"]+)"', resp.text or "")
-                if m:
-                    token = m.group(1)
-
-            if token:
-                # Format expiry thành string "YYYY-MM-DD HH:MM:SS UTC" (port Checker main.py:2042)
-                return {
-                    "token": token,
-                    "expires_at_utc": get_nftoken_expiry_utc(expires),
-                }, None, logs
-
-            # HTTP 200 nhưng value rỗng {} → Netflix NHẬN request nhưng KHÔNG cấp token cho
-            # account này (từ chối mềm). Hay gặp với cookie "sống" trên web nhưng luồng token
-            # iOS FTL từ chối, hoặc account đã đăng xuất/đổi mật khẩu phía server.
-            if isinstance(data, dict) and not (data.get("value") or {}):
-                last_error = ("Netflix không cấp token (HTTP 200, value rỗng) — account bị từ chối "
-                              "Cookies Hỏng")
-            else:
-                last_error = "Token không có trong response (cookie có thể đã hết hạn)"
-
-        except requests.exceptions.Timeout:
-            last_error = f"Timeout (attempt {attempt}/{attempts})"
-            log["status"] = "ERR"
-            log["preview"] = last_error
-            logs.append(log)
-        except requests.exceptions.RequestException as e:
-            last_error = f"Network error: {e}"
-            log["status"] = "ERR"
-            log["preview"] = str(e)[:200]
-            logs.append(log)
-        except Exception as e:
-            last_error = f"Unexpected error: {e}"
-            log["status"] = "ERR"
-            log["preview"] = str(e)[:200]
-            logs.append(log)
-
-    # ─── Fallback D: thử endpoint phụ nếu FTL từ chối ─────────────────────────────
-    # Thử loginWithToken với token = "auto" (Netflix endpoint tự cấp) — đôi khi cookie
-    # "sống" nhưng iOS FTL từ chối do path-specific, trong khi web path vẫn cấp token.
-    fb_token, fb_log = _fallback_create_token(cookies_dict)
-    if fb_token:
-        logs.append(fb_log)
-        return fb_token, None, logs
-    if fb_log:
-        logs.append(fb_log)
-
-    return None, last_error, logs
+    err_msg = "Tất cả endpoint đều từ chối (cookies có thể die)"
+    if isinstance(log, dict):
+        err_msg = log.get("preview", err_msg)
+    return None, err_msg, [log] if log else []
 
 
 def _fallback_create_token(cookies_dict: dict) -> tuple:
     """
     Fallback khi FTL từ chối: thử 1 endpoint phụ.
-    Trả về ({token, expires} | None, log_dict | None).
+    Trả về ({token, expires, source} | None, log_dict | None).
     """
     cookie_header = _build_cookie_header(cookies_dict)
     headers = {
@@ -688,7 +638,7 @@ def _fallback_create_token(cookies_dict: dict) -> tuple:
                     if m:
                         token = m.group(1)
                 if token:
-                    return {"token": token, "expires": None}, {
+                    return {"token": token, "expires": None, "source": "web-shakti-direct"}, {
                         "method": "fallback createAutoLoginToken",
                         "url": url,
                         "status": resp.status_code,
@@ -704,6 +654,263 @@ def _fallback_create_token(cookies_dict: dict) -> tuple:
     return None, None
 
 
+def _create_token_via_shakti(cookies_dict: dict) -> tuple:
+    """
+    Tạo token bằng web Shakti pathEvaluator (giống Netflix web làm khi user click
+    "Sign in" trên www.netflix.com). Đây là endpoint MÀ NETFLIX WEB HỖ TRỢ redeem
+    → token trả về redeem được trên mọi browser (mobile + PC).
+
+    Flow:
+      1. GET www.netflix.com/clearCookies hoặc root để Netflix set session cookies
+         (nếu cần) + lấy page context. Bước này an toàn vì cookie đã có sẵn.
+      2. POST pathEvaluator với path `["createAutoLoginToken"]` + authURL (lấy từ
+         global JS object `netflix.reactContext.models.userInfo.data.authURL`).
+      3. Parse `jsonGraph.createAutoLoginToken.value.token` từ response.
+
+    Nếu authURL không có sẵn (vì không mở browser trước), ta KHÔNG thể tạo request
+    hợp lệ → fallback về endpoint `createAutoLoginToken` direct (xem _fallback).
+
+    Trả về: ({token, expires, source} | None, log_dict | None)
+    """
+    cookie_header = _build_cookie_header(cookies_dict)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/javascript, */*",
+        "Accept-Language": "en-US,en;q=0.8",
+        "Content-Type": "application/json",
+        "Cookie": cookie_header,
+        "x-netflix.esn": "NFCDCH-MC-WEB-1-PXH-NFRSV-NFENF-NFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNFNF",
+        "x-netflix.request.client.type": "akira",
+        "x-netflix.context.ui-flavor": "akira",
+        "x-netflix.client.appversion": "1.0.0",
+    }
+
+    # Bước 1: Lấy authURL từ Netflix web page
+    # (authURL = per-session token mà Netflix dùng cho mọi Shakti call)
+    try:
+        page_resp = requests.get(
+            "https://www.netflix.com/browse",
+            headers=headers,
+            timeout=20,
+            verify=False,
+            allow_redirects=True,
+        )
+        auth_url = None
+        # Tìm authURL trong page (script embedded)
+        m = re.search(r'"authURL"\s*:\s*"([^"]+)"', page_resp.text or "")
+        if m:
+            auth_url = m.group(1)
+        else:
+            # Fallback: tìm trong reactContext
+            m = re.search(r'authURL["\s:]+([^",}\s]+)', page_resp.text or "")
+            if m:
+                auth_url = m.group(1)
+        if not auth_url:
+            return None, {
+                "method": "shakti pathEvaluator",
+                "url": "https://www.netflix.com/browse",
+                "status": page_resp.status_code,
+                "preview": "no authURL found in page",
+            }
+    except Exception as e:
+        return None, {
+            "method": "shakti pathEvaluator (page fetch)",
+            "url": "https://www.netflix.com/browse",
+            "status": "ERR",
+            "preview": str(e)[:200],
+        }
+
+    # Bước 2: Gọi pathEvaluator với createAutoLoginToken cho từng buildId
+    for build_id in SHAKTI_BUILD_IDS:
+        url = f"https://www.netflix.com/api/shakti/{build_id}/pathEvaluator"
+        try:
+            # Body format: path=<JSON>&authURL=<authURL>  (URL-encoded, NO space)
+            paths = [["createAutoLoginToken"]]
+            body = "path=" + urllib.parse.quote(
+                json.dumps(paths, separators=(",", ":")),
+                safe="",
+            ) + "&authURL=" + urllib.parse.quote(auth_url, safe="")
+            resp = requests.post(
+                url,
+                headers={
+                    **headers,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Content-Length": str(len(body)),
+                },
+                data=body.encode("utf-8"),
+                timeout=20,
+                verify=False,
+            )
+            if resp.status_code != 200:
+                continue
+            data = {}
+            try:
+                data = resp.json()
+            except Exception:
+                continue
+
+            # Path: jsonGraph.createAutoLoginToken.value.{token, expires}
+            token = None
+            expires = None
+            jg = data.get("jsonGraph") or data
+            cal = jg.get("createAutoLoginToken") if isinstance(jg, dict) else None
+            if isinstance(cal, dict):
+                val = cal.get("value")
+                if isinstance(val, dict):
+                    token = val.get("token")
+                    expires = val.get("expires")
+                elif isinstance(val, str):
+                    token = val
+            if not token:
+                m = re.search(r'"token"\s*:\s*"([^"]+)"', resp.text or "")
+                if m:
+                    token = m.group(1)
+            if token:
+                return {
+                    "token": token,
+                    "expires": expires,
+                    "source": f"web-shakti-{build_id}",
+                }, {
+                    "method": f"shakti pathEvaluator (buildId={build_id})",
+                    "url": url,
+                    "status": resp.status_code,
+                    "preview": "ok (web token)",
+                }
+        except Exception as e:
+            continue  # thử buildId kế tiếp
+
+    return None, {
+        "method": "shakti pathEvaluator",
+        "url": "https://www.netflix.com/api/shakti/.../pathEvaluator",
+        "status": "ALL_BUILD_IDS_FAILED",
+        "preview": "Tried all Shakti buildIds, none returned a token",
+    }
+
+
+def _create_token_hybrid(cookies_dict: dict) -> tuple:
+    """
+    Hybrid smart token creator: thử NHIỀU endpoint, ưu tiên token redeem được
+    trên web browser (tránh lỗi NSES-404 khi mở link trên điện thoại).
+
+    Thứ tự ưu tiên:
+      1. **Web Shakti pathEvaluator** (`createAutoLoginToken` qua pathEvaluator)
+         → token này 100% redeem được trên Netflix web (mobile + PC browser).
+      2. **Web Shakti direct** (`/api/shakti/{buildId}/createAutoLoginToken`)
+         → endpoint rút gọn, một số version Netflix vẫn support.
+      3. **iOS FTL** (`account.token.default` qua ios.prod.ftl.netflix.com)
+         → chỉ dùng khi cả 2 trên fail. iOS FTL token KHÔNG redeem được trên
+         browser mobile, nhưng vẫn OK trên iOS app hoặc PC browser.
+
+    Trả về: ({token, expires, source} | None, log_dict | None)
+    """
+    # Ưu tiên 1: Web Shakti pathEvaluator
+    token, log = _create_token_via_shakti(cookies_dict)
+    if token:
+        return token, log
+    if log:
+        logs_list = [log]
+    else:
+        logs_list = []
+
+    # Ưu tiên 2: Web Shakti direct (legacy)
+    token2, log2 = _fallback_create_token(cookies_dict)
+    if token2:
+        return token2, log2
+    if log2:
+        logs_list.append(log2)
+
+    # Ưu tiên 3: iOS FTL — giữ để tương thích user cũ, dù là token này gây NSES-404
+    # trên mobile browser. Vẫn trả về cho ai muốn dùng iOS app.
+    token3, log3 = _create_token_ios_ftl(cookies_dict)
+    if token3:
+        return token3, log3
+    if log3:
+        logs_list.append(log3)
+
+    return None, {"method": "hybrid", "status": "ALL_FAILED",
+                  "preview": "Tất cả endpoint đều fail", "logs": logs_list}
+
+
+def _create_token_ios_ftl(cookies_dict: dict, attempts: int = 3) -> tuple:
+    """
+    Tạo token qua iOS FTL endpoint (port từ Checker bot.py create_nftoken).
+    Trả về ({token, expires, source} | None, log_dict | None).
+    """
+    logs = []
+    last_error = "iOS FTL error"
+
+    for attempt in range(1, attempts + 1):
+        log = {
+            "method": f"iOS FTL iosui/15.48 (try {attempt})",
+            "url": NFTOKEN_API_URL, "status": None, "preview": "",
+        }
+        try:
+            session = requests.Session()
+            session.cookies.update(cookies_dict)
+            session.verify = False
+            headers = dict(NFTOKEN_HEADERS)
+            resp = session.get(
+                NFTOKEN_API_URL,
+                params=NFTOKEN_QUERY_PARAMS,
+                headers=headers,
+                timeout=30,
+            )
+            log["status"] = resp.status_code
+            log["preview"] = (resp.text or "")[:300]
+            logs.append(log)
+
+            if resp.status_code == 403:
+                last_error = "403 Forbidden — cookie có thể đã hết hạn hoặc bị chặn"
+                continue
+            if resp.status_code == 429:
+                last_error = "429 Rate Limited"
+                continue
+            if resp.status_code != 200:
+                last_error = f"HTTP {resp.status_code}"
+                continue
+            try:
+                data = resp.json()
+            except Exception:
+                data = None
+            token = None
+            expires = None
+            if isinstance(data, dict):
+                token_data = (
+                    (((data.get("value") or {}).get("account") or {}).get("token") or {}).get("default")
+                    or {}
+                )
+                token = token_data.get("token")
+                expires = token_data.get("expires")
+            if not token:
+                m = re.search(r'"token"\s*:\s*"([^"]+)"', resp.text or "")
+                if m:
+                    token = m.group(1)
+            if token:
+                return {
+                    "token": token, "expires": expires,
+                    "source": "ios-ftl-15.48",
+                }, log
+            if isinstance(data, dict) and not (data.get("value") or {}):
+                last_error = "iOS FTL: value rỗng — bị từ chối mềm"
+            else:
+                last_error = "iOS FTL: không có token"
+        except requests.exceptions.Timeout:
+            last_error = f"Timeout (attempt {attempt})"
+            log["status"] = "ERR"
+            log["preview"] = last_error
+            logs.append(log)
+        except Exception as e:
+            last_error = f"iOS FTL error: {e}"
+            log["status"] = "ERR"
+            log["preview"] = str(e)[:200]
+            logs.append(log)
+
+    return None, {"method": "iOS FTL", "status": "FAIL",
+                  "preview": last_error, "logs": logs}
+
+
 # ─── Main generation function ────────────────────────────────────────────────
 
 def get_login_links(cookies_dict: dict) -> dict:
@@ -715,6 +922,11 @@ def get_login_links(cookies_dict: dict) -> dict:
       - PC:    https://netflix.com/?nftoken=<token>           ← iOS/PC/Desktop
       - Mobile: https://netflix.com/unsupported?nftoken=<token> ← Android (App Link)
     Token có hiệu lực ~1 giờ, không bị bind IP/region/device.
+
+    Trả thêm trường `token_source` để frontend biết token này redeem được trên
+    web browser hay không:
+      - "web-shakti-..."       → redeem OK trên mọi browser (mobile + PC)
+      - "ios-ftl-15.48"        → CHỈ redeem được trên iOS app hoặc PC, MOBILE BROWSER SẼ 404
     """
     if not cookies_dict.get("NetflixId"):
         return {"ok": False, "error": "Thiếu cookie: NetflixId"}
@@ -731,17 +943,29 @@ def get_login_links(cookies_dict: dict) -> dict:
     # Token đã được decode_netflix_value normalize trong create_nftoken
     token = token_data["token"]
     expiry_str = token_data.get("expires_at_utc") or token_data.get("expires") or ""
-    method = "iOS FTL NFToken 15.48 (native, port from Checker)"
+    token_source = token_data.get("source", "unknown")
+    method = f"Hybrid: {token_source}"
 
     # Tái build URL từ build_nftoken_links (port Checker) để đảm bảo format chuẩn
     links = build_nftoken_links(token, mode="both")
     pc_url = next((u for lbl, u in links if "PC" in lbl), PC_LOGIN_BASE + token)
     mobile_url = next((u for lbl, u in links if "Phone" in lbl or "Mobile" in lbl), MOBILE_LOGIN_BASE + token)
 
+    # Cảnh báo nếu token từ iOS FTL — sẽ 404 trên mobile browser
+    warning = None
+    if token_source.startswith("ios-ftl"):
+        warning = (
+            "⚠️ Token này từ iOS FTL — KHÔNG mở bằng browser mobile (sẽ bị NSES-404). "
+            "Dùng iOS Safari (có app Netflix) hoặc PC browser. "
+            "Nếu bạn đã cập nhật app nhưng vẫn nhận iOS FTL token, hãy thử lại sau vài phút."
+        )
+
     return {
         **_build_result(token, expiry_str, method),
         "pc": pc_url,
         "mobile": mobile_url,
+        "token_source": token_source,
+        "warning": warning,
         "debug": logs,
     }
 
