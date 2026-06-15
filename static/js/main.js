@@ -86,11 +86,15 @@ function buildCard(data, index = null) {
     //           (Netflix App Link claim path /unsupported → mở app → app redeem token)
     const webUrl = data.web || ("https://www.netflix.com/?nftoken=" + encodeURIComponent(data.token || ""));
     const appUrl = data.app || data.mobile || ("https://www.netflix.com/unsupported?nftoken=" + encodeURIComponent(data.token || ""));
-    // Hiển thị warning nếu token từ iOS FTL (sẽ 404 trên mobile browser)
+    // Token sources:
+    //   - "web-shakti-..." → Netflix web pathEvaluator (token từ web flow)
+    //   - "ios-ftl-15.48"  → iOS FTL API (token từ iOS app flow)
+    // CẢ HAI loại token đều redeem OK trên mọi browser (iOS Safari / Chrome mobile / PC).
+    // Đã verify thực tế bằng cách paste link vào nhiều UA — KHÔNG gây NSES-404.
     const sourceLabel = (() => {
       const src = data.token_source || "";
       if (src.startsWith("web-shakti")) return { txt: "🌐 Web Shakti (an toàn cho mọi thiết bị)", cls: "src-web" };
-      if (src.startsWith("ios-ftl")) return { txt: "📱 iOS FTL (CHỈ dùng cho iOS app / PC, mobile browser sẽ 404)", cls: "src-ios" };
+      if (src.startsWith("ios-ftl")) return { txt: "📱 iOS FTL (hoạt động trên mọi thiết bị)", cls: "src-ios" };
       return { txt: "❓ Unknown source", cls: "src-unknown" };
     })();
     const warningBox = data.warning
