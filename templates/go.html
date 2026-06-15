@@ -6,6 +6,11 @@
   <meta name="robots" content="noindex,nofollow" />
   <meta name="theme-color" content="#1b1b1f" />
   <title>Mở Netflix</title>
+  <!--
+    ANDROID: link `https://www.netflix.com/unsupported?nftoken=...` được Netflix
+    App Link claim → click → mở app Netflix → app tự redeem token → vào /browse.
+    iOS/PC: dùng link web `?nftoken=...` thuần (AASA exclude path "/unsupported" trên iOS).
+  -->
   <style>
     :root { --accent:#e50914; --bg:#0b0b0f; --text:#f2f2f2; --muted:#9a9aa2; --ok:#4ade80; }
     * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -20,18 +25,16 @@
     .logo { width:72px; height:72px; margin:0 auto 20px; background:var(--accent); border-radius:16px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:28px; letter-spacing:-1px; }
     h1 { font-size:22px; margin:0 0 8px; font-weight:700; }
     p { color:var(--muted); font-size:14px; line-height:1.5; margin:0 0 24px; }
-
     .btn-open {
       display:flex; align-items:center; justify-content:center; gap:10px;
       width:100%; padding:18px 24px; border:0; border-radius:14px;
       background:var(--accent); color:#fff; font-size:19px; font-weight:800;
-      text-decoration:none; cursor:pointer; margin:0 0 16px;
+      text-decoration:none; cursor:pointer; margin:0 0 12px;
       box-shadow:0 6px 20px rgba(229,9,20,.35);
       transition:transform .1s, box-shadow .1s;
       -webkit-user-select:none; user-select:none;
     }
     .btn-open:active { transform:scale(.97); box-shadow:0 3px 10px rgba(229,9,20,.3); }
-
     .info {
       background:#1a1a22; border:1px solid #2a2a35; border-radius:10px;
       padding:12px 14px; font-size:12.5px; line-height:1.55; color:var(--muted);
@@ -48,66 +51,36 @@
 <body>
   <div class="box">
     <div class="logo">N</div>
-    <span class="badge" id="badge">Đang tải…</span>
+    <span class="badge" id="badge">Sẵn sàng mở Netflix</span>
     <h1>Mở Netflix</h1>
-    <p id="desc">Bấm nút bên dưới để mở Netflix đã đăng nhập sẵn.</p>
+    <p id="desc">Bấm nút bên dưới — Netflix sẽ tự mở và đăng nhập vào tài khoản của bạn.</p>
 
-    <!--
-      href đã set bởi Jinja2 server-side với token URL-encode đúng 1 lần.
-      URL gốc netflix.com/?nftoken=<token>:
-        - iOS AASA: match /?* (root + query) → mở app Netflix qua Universal Link.
-          iOS show "Open in App?" → user bấm Open → app Netflix redeem token
-          từ URL → set session trong app → auto login.
-        - Android App Link: match mọi URL trên netflix.com → mở app Netflix.
-          App redeem token thành công.
-        - Nếu không có app: mở Safari/Chrome → Netflix web redeem + set cookie.
-    -->
-    <a class="btn-open" id="open-btn" href="https://www.netflix.com/?nftoken={{ token | urlencode }}" rel="noopener">
-      <span id="open-text">▶ OPEN HERE</span>
+    <!-- 1 nút duy nhất: dùng app_url (/unsupported?nftoken=...) trên Android,
+         web_url (?nftoken=...) trên iOS/PC. -->
+    <a class="btn-open" id="open-btn" href="{{ open_url | safe }}" rel="noopener">
+      <span>▶ MỞ NETFLIX</span>
     </a>
 
     <div class="info" id="info" style="display:none;"></div>
   </div>
 
   <script>
-    // Token RAW đã được server decode (1-2 lần) và sẽ được urlencode 1 lần
-    // trong href của nút bên dưới. KHÔNG cần JS set href - đã có sẵn.
-    var HOST = {{ host | tojson }};
+    var OPEN_URL = {{ open_url | tojson }};
     var ua = navigator.userAgent || "";
-    var isIOS = /iPhone|iPad|iPod/i.test(ua);
     var isAndroid = /Android/i.test(ua);
-    var isMobile = isIOS || isAndroid;
-    var isLocal = /^(127\.|localhost|0\.0\.0\.0|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/i.test(HOST);
-
-    var badge = document.getElementById("badge");
-    var descEl = document.getElementById("desc");
-    var openText = document.getElementById("open-text");
     var infoBox = document.getElementById("info");
+    var badge = document.getElementById("badge");
 
-    if (isLocal) {
-      badge.textContent = "⚠️ LOCAL";
-      descEl.innerHTML = "Link này dùng địa chỉ <b>local</b> (" + HOST + ") — chỉ mở được trên <b>chính thiết bị chạy server</b>.";
-      document.getElementById("open-btn").style.display = "none";
-      infoBox.style.display = "none";
-    } else if (isMobile) {
-      badge.textContent = isIOS ? "📱 iPhone / iPad" : "📱 Android";
-      descEl.textContent = "Bấm nút bên dưới để mở Netflix đã đăng nhập sẵn.";
-      openText.textContent = "▶ OPEN HERE";
-      if (isIOS) {
-        infoBox.style.display = "block";
-        infoBox.innerHTML =
-          "<b>Trên iPhone:</b> Bấm <b>\"OPEN HERE\"</b> → iOS sẽ hỏi <b>\"Open in App?\"</b> → bấm <b>Open</b> để mở app Netflix.";
-      } else {
-        infoBox.style.display = "block";
-        infoBox.innerHTML =
-          "<b>Trên Android:</b> Bấm <b>\"OPEN HERE\"</b> → app Netflix sẽ mở và tự đăng nhập.";
-      }
+    if (isAndroid) {
+      infoBox.style.display = "block";
+      infoBox.innerHTML =
+        "<b>Trên Android:</b> bấm <b>MỞ NETFLIX</b> → app Netflix sẽ tự mở và đăng nhập. " +
+        "Nếu Chrome hiện popup <b>\"Open with\"</b> → chọn <b>Netflix</b>.";
+      badge.textContent = "📱 Android";
+    } else if (/iPhone|iPad|iPod/i.test(ua)) {
+      badge.textContent = "📱 iPhone / iPad";
     } else {
-      // Desktop: mở thẳng web Netflix (Netflix web parse ?nftoken= → login)
       badge.textContent = "🖥️ Desktop";
-      descEl.textContent = "Bấm nút bên dưới để mở Netflix đã đăng nhập sẵn trên trình duyệt.";
-      openText.textContent = "▶ OPEN HERE";
-      infoBox.style.display = "none";
     }
   </script>
 </body>

@@ -48,24 +48,34 @@ def handle_unexpected_error(err):
     ), 500
 
 
-def _build_mobile_link(token: str) -> str:
-    """
-    Link mobile = landing page /go TRÊN CHÍNH server này (KHÔNG phải netflix.com).
-    Lý do: gửi thẳng netflix.com/?nftoken= thì máy có app Netflix sẽ bị App Link/Universal Link
-    cướp link -> app đẩy sang endpoint chết /oAuth2Login -> NSES-404 "Lost your way".
-    Mở qua /go (domain khác netflix) thì app KHÔNG cướp; trang /go gọi server /redeem
-    (server-side redeem từ IP server) rồi set cookie session Netflix rồi redirect sang
-    netflix.com -> mở app/web đều login được, không còn NSES-404.
-    """
-    host = request.host  # vd: myapp.onrender.com
-    scheme = "http" if host.startswith(("127.", "localhost", "0.0.0.0")) else "https"
-    return f"{scheme}://{host}/go?t=" + urllib.parse.quote(token, safe="")
-
-
 def _attach_mobile_link(result: dict) -> dict:
-    """Ghi đè field 'mobile' bằng URL /go nếu generate thành công."""
-    if result.get("ok") and result.get("token"):
-        result["mobile"] = _build_mobile_link(result["token"])
+    """Ghi đè field 'mobile' / 'app' / 'landing' bằng URL phù hợp cho từng platform.
+
+    URL outputs:
+      - web:      https://www.netflix.com/?nftoken=<token>
+                  RELIABLE NHẤT — AASA exclude path "?" → mở Safari/Chrome → Netflix
+                  web redeem token. Dùng được cho mọi platform kể cả khi không có app.
+      - app:      https://www.netflix.com/unsupported?nftoken=<token>
+                  Backup cho TH có app Netflix + AASA cache local còn claim path này.
+      - landing:  {scheme}://{host}/go?t=<token>
+                  Trang trung gian tự auto-redirect sang web_url. Dùng khi paste
+                  vào chat/SMS để giữ branding server, hoặc khi cần auto-redirect.
+      - mobile:   alias backward-compat = landing.
+    """
+    if not (result.get("ok") and result.get("token")):
+        return result
+    token = result["token"]
+    host = request.host
+    scheme = "http" if host.startswith(("127.", "localhost", "0.0.0.0")) else "https"
+
+    web_url = "https://www.netflix.com/?nftoken=" + urllib.parse.quote(token, safe="")
+    app_url = "https://www.netflix.com/unsupported?nftoken=" + urllib.parse.quote(token, safe="")
+    landing_url = f"{scheme}://{host}/go?t=" + urllib.parse.quote(token, safe="")
+
+    result["web"] = web_url
+    result["app"] = app_url
+    result["landing"] = landing_url
+    result["mobile"] = landing_url
     return result
 
 
@@ -106,56 +116,59 @@ def go(token=None):
             token = urllib.parse.unquote(token)
         except Exception:
             pass
-    return render_template("go.html", token=token, pc_base=config.LOGIN_BASE, host=request.host)
-
-
-@app.route("/redeem", methods=["POST", "GET"])
-def redeem():
-    """
-    Server-side redeem NFToken: gọi Netflix từ IP server (khớp IP phát sinh FTL token).
-    Trả JSON { ok, redirect, cookies, error } để go.html xử lý phía client.
-
-    Body JSON (POST): { "token": "<nftoken>" }
-    Query: ?t=<nftoken> (cho GET — dễ test bằng curl)
-    """
-    from netflix import _server_redeem_nftoken
-    if request.method == "GET":
-        token = (request.args.get("t") or request.args.get("token") or "").strip()
+    # Build URL theo 2 kiểu:
+    #   web_url = https://www.netflix.com/?nftoken=<token> — AASA của netflix.com EXCLUDE
+    #     path "?" → iOS/Android KHÔNG mở app Netflix qua Universal Link, mà mở
+    #     Safari/Chrome. Netflix web nhận ?nftoken= → gọi nội bộ loginWithToken
+    #     → set session cookies → redirect /browse → user login. Đây là URL
+    #     RELIABLE NHẤT, dùng được cho cả iOS/Android browser, PC, và cả khi
+    #     không có app Netflix.
+    #   app_url = https://www.netflix.com/unsupported?nftoken=<token> — AASA cũng
+    #     exclude path /unsupported (xem apple-app-site-association của netflix.com),
+    #     nhưng Netflix web trang /unsupported KHÔNG auto-redeem token (chỉ show
+    #     form login). Path này dùng làm backup: nếu user có app Netflix cũ
+    #     version đôi khi vẫn claim /unsupported qua cache AASA local → app mở
+    #     → app redeem token.
+    # Chọn open_url theo platform (detect từ User-Agent server-side, không phụ
+    # thuộc JS client):
+    #   - Android: dùng /unsupported?nftoken=... → Netflix App Link claim path
+    #     này → click → mở app → app TỰ redeem token (đã test OK).
+    #     KHÔNG dùng /?nftoken=... vì path "?" root KHÔNG bị Android App Link
+    #     claim → mở Chrome thay vì app → user thấy trang login trên web.
+    #   - iOS: AASA EXCLUDE cả /unsupported lẫn /?nftoken= (path "?" root).
+    #     iOS sẽ mở Safari với Netflix web → web redeem token → login OK.
+    #     Dùng /?nftoken=... cho iOS (mở web thuần, không bị app cướp).
+    #   - PC/Desktop: mở web thuần → /?nftoken=... là chuẩn nhất.
+    ua = (request.headers.get("User-Agent") or "").lower()
+    is_android = "android" in ua
+    if is_android:
+        open_url = "https://www.netflix.com/unsupported?nftoken=" + urllib.parse.quote(token, safe="")
     else:
-        body = request.get_json(silent=True) or {}
-        token = (body.get("token") or body.get("t") or "").strip()
-    token = urllib.parse.unquote(token) if token else ""
-    if "%" in token:
-        try:
-            token = urllib.parse.unquote(token)
-        except Exception:
-            pass
-    if not token:
-        return jsonify({"ok": False, "error": "Thiếu token"}), 400
-    result = _server_redeem_nftoken(token)
-    return jsonify(result), (200 if result.get("ok") else 502)
+        open_url = "https://www.netflix.com/?nftoken=" + urllib.parse.quote(token, safe="")
+    # Vẫn giữ web_url/app_url để không phá backward-compat với template cũ (nếu có).
+    web_url = open_url
+    app_url = "https://www.netflix.com/unsupported?nftoken=" + urllib.parse.quote(token, safe="")
+    return render_template(
+        "go.html",
+        token=token,
+        open_url=open_url,
+        web_url=web_url,
+        app_url=app_url,
+        pc_base=config.LOGIN_BASE,
+        host=request.host,
+    )
 
 
 @app.route("/go-redirect")
 def go_redirect():
     """
-    Server-side redeem + redirect sang Netflix web (Safari path).
-    Flow: redeem NFToken → nếu OK thì lấy cookies từ Netflix, gọi redirect
-    tới https://www.netflix.com/?nftoken=<token> để Netflix web tự redeem + set cookie
-    trên domain netflix.com. Nếu redeem fail, fallback về ?nftoken= luôn.
+    Endpoint phụ — redirect thẳng sang URL Netflix web (?nftoken=).
 
-    QUAN TRỌNG: Cookie session Netflix chỉ work khi được set bởi Netflix domain
-    (iOS Safari block third-party cookie). Vì vậy ta KHÔNG thể set cookie từ
-    server của mình — phải để Netflix web tự redeem ?nftoken=.
-
-    Flow cho user mobile (iOS/Android):
-      1. User bấm "Mở web trên Safari" → Safari mở netflix.com/?nftoken=X
-      2. Netflix web redeem token → set SecureNetflixId/NetflixId cookie
-      3. Netflix web redirect tới /browse → user login Netflix trên Safari
-      4. User mở app Netflix → app dùng session từ Safari (iCloud Keychain
-         sharing nếu cùng Apple ID + cùng Netflix account) → auto login
+    Lý do giữ endpoint này: một số user Telegram/SMS shorten URL cắt mất query
+    → /go?t=X bị cắt thành /go. Trang /go nếu không có token thì redirect về
+    /?missing=token. Endpoint này cho phép user mở /go-redirect?t=X (1 URL ngắn)
+    để server xử lý tương tự /go nhưng KHÔNG render UI (chỉ 302 redirect).
     """
-    from netflix import _server_redeem_nftoken
     token = (
         request.args.get("t")
         or request.args.get("token")
@@ -169,46 +182,8 @@ def go_redirect():
             pass
     if not token:
         return redirect(url_for("index", missing="token"))
-
-    # Thử redeem server-side để validate token (Netflix có thể reject token
-    # hết hạn / không hợp lệ → biết trước thay vì để Safari tự mở rồi fail).
-    # Dù kết quả redeem thế nào, ta VẪN redirect tới netflix.com với ?nftoken= vì
-    # cookie session Netflix chỉ được set bởi Netflix domain (third-party cookie
-    # bị iOS Safari block).
-    #
-    # Dùng path /browse?nftoken= thay vì /?nftoken= vì AASA của netflix.com
-    # khai báo /browse/* là Universal Link (mở app), còn /?* ở root chỉ
-    # fallback cho deep link. Nếu dùng /?nftoken=, iOS có thể mở app Netflix
-    # thay vì Safari → lại fail. Dùng /browse?nftoken= thì Netflix web sẽ
-    # redeem ?nftoken= trước khi mở app (nếu app claim), hoặc Safari sẽ mở
-    # web Netflix nếu không có app claim cụ thể cho /browse?nftoken=.
-    _server_redeem_nftoken(token)  # validate, kết quả không dùng trực tiếp
-    token_safe = urllib.parse.quote(token, safe="")
-    target = "https://www.netflix.com/browse?nftoken=" + token_safe
-
-    # Trả HTML với auto-redirect sang Netflix. Path /browse KHÔNG match AASA
-    # /browse/* (vì thiếu /) → iOS sẽ mở Safari, không phải app. Safari load
-    # netflix.com/browse?nftoken=X → Netflix web redeem + set cookie session
-    # trên domain netflix.com → user login web Netflix.
-    return (
-        '<!DOCTYPE html><html><head><meta charset="UTF-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
-        '<title>Đang mở Netflix…</title>'
-        '<meta http-equiv="refresh" content="0; url=' + target + '">'
-        '<style>body{background:#0b0b0f;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:24px}'
-        'h1{font-size:18px;margin:0 0 12px}p{color:#9a9aa2;font-size:14px;line-height:1.5;margin:0 0 20px}'
-        '.spinner{width:40px;height:40px;margin:0 auto 20px;border:4px solid rgba(255,255,255,.12);border-top-color:#e50914;border-radius:50%;animation:spin .9s linear infinite}'
-        '@keyframes spin{to{transform:rotate(360deg)}}'
-        'a{display:inline-block;background:#e50914;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:12px}</style>'
-        '</head><body><div style="max-width:360px"><div class="spinner"></div>'
-        '<h1>Đang mở Netflix…</h1><p>Nếu không tự chuyển, bấm nút bên dưới:</p>'
-        '<a href="' + target + '" rel="noopener">Mở Netflix</a>'
-        '</div><script>setTimeout(function(){window.location.replace("' + target + '");},100);</script>'
-        '</body></html>'
-    ), 200, {
-        "X-Frame-Options": "DENY",
-        "Content-Security-Policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'",
-    }
+    target = "https://www.netflix.com/?nftoken=" + urllib.parse.quote(token, safe="")
+    return redirect(target, code=302)
 
 
 @app.route("/api/generate", methods=["POST"])

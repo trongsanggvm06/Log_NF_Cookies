@@ -77,9 +77,14 @@ function buildCard(data, index = null) {
     card.dataset.copyCount = "0";
     card.dataset.copyLimit = String(COPY_LIMIT);
     const indexBadge = index !== null ? `<span class="badge badge-index">#${index}</span>` : "";
-    // 2 link: PC = netflix.com trực tiếp; Mobile = qua landing page /go (né app cướp link → NSES-404)
-    const pcUrl = data.pc || data.url || data.mobile;
-    const mobileUrl = data.mobile || data.pc || data.url;
+    // 3 link formats:
+    //   - web     = https://www.netflix.com/?nftoken=<token>  ← RELIABLE NHẤT
+    //               (AASA exclude path "?" → mở Safari/Chrome → Netflix web redeem)
+    //   - app     = https://www.netflix.com/unsupported?nftoken=<token>  ← backup
+    //   - landing = {server}/go?t=<token>  ← tự auto-redirect, dùng khi paste chat
+    const webUrl = data.web || ("https://www.netflix.com/?nftoken=" + encodeURIComponent(data.token || ""));
+    const appUrl = data.app || ("https://www.netflix.com/unsupported?nftoken=" + encodeURIComponent(data.token || ""));
+    const landingUrl = data.landing || data.mobile || webUrl;
     card.innerHTML = `
       <div class="result-header">
         ${indexBadge}
@@ -87,16 +92,22 @@ function buildCard(data, index = null) {
         <span class="result-title">Build: ${data.build_id || "—"}</span>
       </div>
 
-      <div class="link-row">
-        <span class="link-label">💻 Link PC</span>
-        <a class="link-url" href="${pcUrl}" target="_blank" title="${pcUrl}">${pcUrl}</a>
-        <button class="btn btn-sm btn-copy" data-copy-text="${pcUrl}" onclick="copyWithQuota(this)">Copy</button>
+      <div class="link-row link-row-primary">
+        <span class="link-label">🌐 Web (Khuyên dùng)</span>
+        <a class="link-url" href="${webUrl}" target="_blank" title="${webUrl}">${webUrl}</a>
+        <button class="btn btn-sm btn-copy" data-copy-text="${webUrl}" onclick="copyWithQuota(this)">Copy</button>
       </div>
 
       <div class="link-row">
-        <span class="link-label">📱 Link Điện thoại</span>
-        <a class="link-url" href="${mobileUrl}" target="_blank" title="${mobileUrl}">${mobileUrl}</a>
-        <button class="btn btn-sm btn-copy" data-copy-text="${mobileUrl}" onclick="copyWithQuota(this)">Copy</button>
+        <span class="link-label">📱 App Netflix</span>
+        <a class="link-url" href="${appUrl}" target="_blank" title="${appUrl}">${appUrl}</a>
+        <button class="btn btn-sm btn-copy" data-copy-text="${appUrl}" onclick="copyWithQuota(this)">Copy</button>
+      </div>
+
+      <div class="link-row">
+        <span class="link-label">🚀 Tự động mở</span>
+        <a class="link-url" href="${landingUrl}" target="_blank" title="${landingUrl}">${landingUrl}</a>
+        <button class="btn btn-sm btn-copy" data-copy-text="${landingUrl}" onclick="copyWithQuota(this)">Copy</button>
         <span class="copy-quota-bar">
           📋 <span class="copy-count">0</span>/${COPY_LIMIT}
         </span>
@@ -104,12 +115,16 @@ function buildCard(data, index = null) {
 
       <div class="usage-grid">
         <div class="usage-item">
-          <div class="usage-icon">💻</div>
-          <div class="usage-title">PC/Laptop: gửi <b>Link PC</b> → mở trực tiếp</div>
+          <div class="usage-icon">🌐</div>
+          <div class="usage-title">Mọi thiết bị: dùng <b>Link Web</b> — dán vào Chrome/Safari trên điện thoại hoặc mở trên PC. Netflix web sẽ tự đăng nhập.</div>
         </div>
         <div class="usage-item">
           <div class="usage-icon">📱</div>
-          <div class="usage-title">iOS + Android: gửi <b>Link Điện thoại</b> → dán vào Chrome/Safari</div>
+          <div class="usage-title">Có app Netflix: dùng <b>Link App</b> — dán vào Safari rồi chọn "Open in App" để mở app.</div>
+        </div>
+        <div class="usage-item">
+          <div class="usage-icon">🚀</div>
+          <div class="usage-title"><b>Link Tự động mở</b> — paste vào chat/SMS, bấm 1 phát là tự chuyển sang Netflix.</div>
         </div>
       </div>
 
