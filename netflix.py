@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 import requests
 from urllib3.exceptions import InsecureRequestWarning
 
-from config import LOGIN_BASE
+from config import LOGIN_BASE, MOBILE_LOGIN_BASE
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
@@ -356,14 +356,17 @@ def _fmt_expiry(expiry) -> str:
 
 
 def _build_result(token: str, expiry, method_name: str) -> dict:
-    url = LOGIN_BASE + token
+    pc_url = LOGIN_BASE + token              # PC: netflix.com/?nftoken= (desktop redeem → /browse)
+    mobile_url = MOBILE_LOGIN_BASE + token   # Mobile: netflix.com/unsupported?nftoken=
+    # /unsupported là path app Netflix KHÔNG claim (iOS AASA exclude; Android tương tự) →
+    # tap từ chat KHÔNG bị app cướp → ở lại trình duyệt → token redeem (login web) →
+    # KHÔNG NSES-404, KHÔNG nhảy màn app-login. Trên netflix.com nên KHÔNG dính Safe Browsing.
     return {
         "ok": True,
-        "token": token,   # raw token — app.py dùng để build link mobile /go (tránh app cướp link)
-        "url": url,
-        "pc": url,
-        # mobile mặc định = link netflix; app.py sẽ ghi đè bằng URL /go (landing page) khi có request context
-        "mobile": url,
+        "token": token,
+        "url": pc_url,
+        "pc": pc_url,
+        "mobile": mobile_url,
         "expiry": _fmt_expiry(expiry),
         "build_id": method_name,
         "strategy": method_name,

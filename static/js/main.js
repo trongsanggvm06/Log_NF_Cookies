@@ -77,7 +77,7 @@ function buildCard(data, index = null) {
     card.dataset.copyCount = "0";
     card.dataset.copyLimit = String(COPY_LIMIT);
     const indexBadge = index !== null ? `<span class="badge badge-index">#${index}</span>` : "";
-    // 2 link: PC = netflix.com trực tiếp; Mobile = qua landing page /go (né app cướp link → NSES-404)
+    // 2 link: PC = netflix.com/?nftoken= ; Mobile = netflix.com/unsupported?nftoken= (đường app KHÔNG cướp → né NSES-404 + không nhảy app-login)
     const pcUrl = data.pc || data.url || data.mobile;
     const mobileUrl = data.mobile || data.pc || data.url;
     card.innerHTML = `

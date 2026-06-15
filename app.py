@@ -1,4 +1,3 @@
-import urllib.parse
 from flask import Flask, render_template, request, jsonify
 import config
 from netflix import parse_cookies, parse_cookie_blocks, get_login_links, probe_endpoint, split_cookie_blocks
@@ -12,39 +11,9 @@ def handle_unexpected_error(err):
     return jsonify({"ok": False, "error": f"Lỗi server nội bộ: {type(err).__name__}"}), 500
 
 
-def _build_mobile_link(token: str) -> str:
-    """
-    Link mobile = landing page /go TRÊN CHÍNH server này (KHÔNG phải netflix.com).
-    Lý do: gửi thẳng netflix.com/?nftoken= thì máy có app Netflix sẽ bị App Link/Universal Link
-    cướp link -> app đẩy sang endpoint chết /oAuth2Login -> NSES-404 "Lost your way".
-    Mở qua /go (domain khác netflix) thì app KHÔNG cướp; trang /go tự điều hướng sang netflix.com
-    NGAY TRONG trình duyệt (điều hướng nội-trình-duyệt không kích App Link) -> redeem web chạy đúng.
-    """
-    host = request.host  # vd: myapp.onrender.com
-    # Render/host thường terminate TLS upstream -> ép https cho host không phải local
-    scheme = "http" if host.startswith(("127.", "localhost", "0.0.0.0")) else "https"
-    return f"{scheme}://{host}/go?t=" + urllib.parse.quote(token, safe="")
-
-
-def _attach_mobile_link(result: dict) -> dict:
-    """Ghi đè field 'mobile' bằng URL /go nếu generate thành công."""
-    if result.get("ok") and result.get("token"):
-        result["mobile"] = _build_mobile_link(result["token"])
-    return result
-
-
 @app.route("/")
 def index():
     return render_template("index.html", title=config.APP_TITLE, subtitle=config.APP_SUBTITLE)
-
-
-@app.route("/go")
-def go():
-    """Landing page trung gian cho mobile: né app-intercept rồi redeem nftoken trong trình duyệt."""
-    token = request.args.get("t", "").strip()
-    if not token:
-        return "Thiếu token đăng nhập.", 400
-    return render_template("go.html", token=token, pc_base=config.LOGIN_BASE)
 
 
 @app.route("/api/generate", methods=["POST"])
@@ -68,7 +37,7 @@ def generate():
                 "count": len(blocks),
             }), 400
         return jsonify({"ok": False, "error": "Không thể đọc cookie, kiểm tra định dạng"}), 400
-    result = _attach_mobile_link(get_login_links(cookies_dict))
+    result = get_login_links(cookies_dict)
     return jsonify(result)
 
 
@@ -89,7 +58,7 @@ def batch():
         if not cookies_dict:
             results.append({"index": i, "ok": False, "error": "Không đọc được cookie"})
             continue
-        result = _attach_mobile_link(get_login_links(cookies_dict))
+        result = get_login_links(cookies_dict)
         result["index"] = i
         results.append(result)
         if i < len(blocks):
