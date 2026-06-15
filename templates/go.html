@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <meta name="robots" content="noindex,nofollow" />
   <meta name="theme-color" content="#1b1b1f" />
-  <title>Đang mở Netflix…</title>
+  <title>Mở Netflix</title>
   <style>
-    :root { --accent:#e50914; --bg:#0b0b0f; --text:#f2f2f2; --muted:#9a9aa2; --ok:#4ade80; --warn:#fbbf24; }
+    :root { --accent:#e50914; --bg:#0b0b0f; --text:#f2f2f2; --muted:#9a9aa2; --ok:#4ade80; }
     * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
     html,body { margin:0; height:100%; }
     body {
@@ -16,219 +16,98 @@
       display:flex; align-items:center; justify-content:center; padding:24px; text-align:center;
       min-height:100vh; min-height:100dvh;
     }
-    .box { max-width:460px; width:100%; }
-    .logo { width:64px; height:64px; margin:0 auto 18px; background:var(--accent); border-radius:14px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:24px; letter-spacing:-1px; }
-    h1 { font-size:21px; margin:0 0 10px; font-weight:700; }
-    p { color:var(--muted); font-size:14px; line-height:1.6; margin:0 0 18px; }
-    .spinner {
-      width:48px; height:48px; margin:0 auto 22px; border-radius:50%;
-      border:4px solid rgba(255,255,255,.12); border-top-color:var(--accent);
-      animation:spin .9s linear infinite;
-    }
-    @keyframes spin { to { transform:rotate(360deg); } }
+    .box { max-width:420px; width:100%; }
+    .logo { width:72px; height:72px; margin:0 auto 20px; background:var(--accent); border-radius:16px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:28px; letter-spacing:-1px; }
+    h1 { font-size:22px; margin:0 0 8px; font-weight:700; }
+    p { color:var(--muted); font-size:14px; line-height:1.5; margin:0 0 24px; }
 
-    .btn {
-      display:flex; align-items:center; justify-content:center; gap:8px;
-      width:100%; padding:16px 20px; border:0; border-radius:12px;
-      background:var(--accent); color:#fff; font-size:17px; font-weight:700;
-      text-decoration:none; cursor:pointer; margin:0 0 10px;
-      transition:transform .1s, opacity .1s;
+    .btn-open {
+      display:flex; align-items:center; justify-content:center; gap:10px;
+      width:100%; padding:18px 24px; border:0; border-radius:14px;
+      background:var(--accent); color:#fff; font-size:19px; font-weight:800;
+      text-decoration:none; cursor:pointer; margin:0 0 16px;
+      box-shadow:0 6px 20px rgba(229,9,20,.35);
+      transition:transform .1s, box-shadow .1s;
       -webkit-user-select:none; user-select:none;
     }
-    .btn:active { transform:scale(.98); opacity:.9; }
-    .btn-secondary { background:#262630; color:#fff; }
-    .btn-success { background:var(--ok); color:#000; }
+    .btn-open:active { transform:scale(.97); box-shadow:0 3px 10px rgba(229,9,20,.3); }
 
-    .status {
-      display:none; border-radius:10px; padding:12px 14px;
-      font-size:13.5px; line-height:1.5; margin:0 0 18px; text-align:left;
+    .info {
+      background:#1a1a22; border:1px solid #2a2a35; border-radius:10px;
+      padding:12px 14px; font-size:12.5px; line-height:1.55; color:var(--muted);
+      text-align:left;
     }
-    .status.ok { display:block; background:#0e2a1a; border:1px solid #2a5a3a; color:var(--ok); }
-    .status.warn { display:block; background:#2a2515; border:1px solid #5a4d20; color:var(--warn); }
-    .status.info { display:block; background:#15263a; border:1px solid #2d4d7a; color:#7eb3ff; }
-    .status b { color:#fff; }
-    .hint { font-size:12.5px; color:var(--muted); margin-top:18px; line-height:1.5; }
-
+    .info b { color:#fff; }
     .badge {
       display:inline-block; background:#262630; color:var(--muted);
       padding:3px 10px; border-radius:99px; font-size:11px; font-weight:600;
       margin-bottom:14px; letter-spacing:.5px; text-transform:uppercase;
     }
-    .step-list { text-align:left; counter-reset:step; padding:0; list-style:none; }
-    .step-list li {
-      counter-increment:step; padding:8px 0 8px 36px; position:relative;
-      color:var(--text); font-size:14px; line-height:1.5;
-    }
-    .step-list li::before {
-      content:counter(step); position:absolute; left:0; top:8px;
-      width:26px; height:26px; border-radius:50%;
-      background:var(--accent); color:#fff; font-weight:700; font-size:13px;
-      display:flex; align-items:center; justify-content:center;
-    }
-    .step-list li.active::before { background:var(--ok); color:#000; }
-    .step-list li.done::before { content:"✓"; background:var(--ok); color:#000; }
-    code.k { background:#1f1f25; padding:2px 6px; border-radius:4px; color:#fff; font-size:12px; word-break:break-all; }
   </style>
 </head>
 <body>
   <div class="box">
     <div class="logo">N</div>
-    <span class="badge" id="badge">Đang chuẩn bị…</span>
-    <h1 id="title">Đăng nhập Netflix</h1>
-    <p id="desc">Đang chuẩn bị phiên đăng nhập…</p>
+    <span class="badge" id="badge">Đang tải…</span>
+    <h1>Mở Netflix</h1>
+    <p id="desc">Bấm nút bên dưới để mở Netflix đã đăng nhập sẵn.</p>
 
-    <div id="status-box" class="status"></div>
-
-    <ol class="step-list" id="step-list" style="display:none;">
-      <li id="step-1">Đang mở <b>Safari</b> để Netflix xác thực phiên…</li>
-      <li id="step-2">Netflix đã đăng nhập trên Safari</li>
-      <li id="step-3">Mở <b>app Netflix</b> trên điện thoại của bạn</li>
-    </ol>
-
-    <a class="btn" id="primary-btn" href="#" rel="noopener" style="display:none;">
-      <span id="primary-text">Mở Netflix</span>
+    <!--
+      href đã set bởi Jinja2 server-side với token URL-encode đúng 1 lần.
+      URL gốc netflix.com/?nftoken=<token>:
+        - iOS AASA: match /?* (root + query) → mở app Netflix qua Universal Link.
+          iOS show "Open in App?" → user bấm Open → app Netflix redeem token
+          từ URL → set session trong app → auto login.
+        - Android App Link: match mọi URL trên netflix.com → mở app Netflix.
+          App redeem token thành công.
+        - Nếu không có app: mở Safari/Chrome → Netflix web redeem + set cookie.
+    -->
+    <a class="btn-open" id="open-btn" href="https://www.netflix.com/?nftoken={{ token | urlencode }}" rel="noopener">
+      <span id="open-text">▶ OPEN HERE</span>
     </a>
-    <a class="btn btn-secondary" id="secondary-btn" href="#" rel="noopener" style="display:none;">
-      <span id="secondary-text">Mở bằng trình duyệt</span>
-    </a>
 
-    <div class="hint" id="hint">
-      Trên iPhone, bấm nút bên dưới để mở <b>Safari</b>. Netflix sẽ tự đăng nhập — sau đó bạn bấm tiếp nút mở app.
-    </div>
+    <div class="info" id="info" style="display:none;"></div>
   </div>
 
   <script>
-    // Token được server inject an toàn.
-    var TOKEN = {{ token | tojson }};
+    // Token RAW đã được server decode (1-2 lần) và sẽ được urlencode 1 lần
+    // trong href của nút bên dưới. KHÔNG cần JS set href - đã có sẵn.
     var HOST = {{ host | tojson }};
-    // Origin của server này (để build URL tuyệt đối cho form/action).
-    var ORIGIN = (function(){
-      try { return window.location.origin; } catch (e) { return ""; }
-    })();
-
-    // ─── Detect platform ─────────────────────────────────────────────────────
     var ua = navigator.userAgent || "";
     var isIOS = /iPhone|iPad|iPod/i.test(ua);
     var isAndroid = /Android/i.test(ua);
     var isMobile = isIOS || isAndroid;
-    var isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
     var isLocal = /^(127\.|localhost|0\.0\.0\.0|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/i.test(HOST);
 
     var badge = document.getElementById("badge");
-    var titleEl = document.getElementById("title");
     var descEl = document.getElementById("desc");
-    var statusBox = document.getElementById("status-box");
-    var primaryBtn = document.getElementById("primary-btn");
-    var secondaryBtn = document.getElementById("secondary-btn");
-    var primaryText = document.getElementById("primary-text");
-    var secondaryText = document.getElementById("secondary-text");
-    var hintEl = document.getElementById("hint");
-    var stepList = document.getElementById("step-list");
-    var step1 = document.getElementById("step-1");
-    var step2 = document.getElementById("step-2");
-    var step3 = document.getElementById("step-3");
+    var openText = document.getElementById("open-text");
+    var infoBox = document.getElementById("info");
 
-    // ─── Helper: đọc query param "from=app" để biết user vừa quay lại từ Safari ──
-    var urlParams = new URLSearchParams(window.location.search);
-    var RETURNED = urlParams.get("from") === "app";
-
-    // ─── Local host: dừng sớm ─────────────────────────────────────────────
     if (isLocal) {
-      badge.textContent = "⚠️ Local";
-      titleEl.textContent = "Không truy cập từ xa";
-      descEl.innerHTML = "Link này dùng địa chỉ <b>local</b> (" + HOST + ") — chỉ mở được trên <b>chính thiết bị chạy server</b>. Dùng URL public (vd <code>https://&lt;your-app&gt;.onrender.com</code>) thay thế.";
-      primaryBtn.style.display = "none";
-      secondaryBtn.style.display = "none";
-      hintEl.style.display = "none";
-    }
-    // ─── Mobile: flow 2 bước (Safari redeem → mở app) ─────────────────────
-    else if (isMobile) {
+      badge.textContent = "⚠️ LOCAL";
+      descEl.innerHTML = "Link này dùng địa chỉ <b>local</b> (" + HOST + ") — chỉ mở được trên <b>chính thiết bị chạy server</b>.";
+      document.getElementById("open-btn").style.display = "none";
+      infoBox.style.display = "none";
+    } else if (isMobile) {
       badge.textContent = isIOS ? "📱 iPhone / iPad" : "📱 Android";
-      titleEl.textContent = "Đăng nhập Netflix";
-      descEl.textContent = "Bấm nút bên dưới để bắt đầu.";
-
-      if (RETURNED) {
-        // ─── User vừa quay lại từ Safari sau khi Netflix web login ───
-        badge.textContent = isIOS ? "📱 iPhone / iPad" : "📱 Android";
-        titleEl.textContent = "Bước cuối: mở app";
-        descEl.innerHTML = "Netflix web đã đăng nhập trên Safari. Bây giờ mở <b>app Netflix</b>.";
-
-        // Highlight step 2 done, step 3 active
-        stepList.style.display = "block";
-        step1.classList.add("done");
-        step2.classList.add("done");
-        step3.classList.add("active");
-
-        statusBox.className = "status ok";
-        statusBox.innerHTML = "✅ <b>Netflix web đã đăng nhập</b> trên Safari (cookie session đã được set trên domain netflix.com trong Safari).";
-
-        // Nút chính: mở app Netflix bằng Universal Link
-        // Dùng path /browse (KHÔNG match AASA /browse/* vì thiếu /) → mở Safari nếu cookie còn.
-        // Hoặc dùng root /?nftoken= (match AASA /?*) → mở app qua Universal Link.
-        // Vì user vừa login web xong, app Netflix sẽ detect session từ Safari Keychain
-        // (chỉ work nếu cùng Apple ID + cùng Netflix account đã từng login app).
-        primaryBtn.href = "https://www.netflix.com/browse";
-        primaryText.textContent = "📱 Mở app Netflix (đã login)";
-        primaryBtn.className = "btn btn-success";
-        primaryBtn.style.display = "flex";
-
-        // Nút phụ: mở lại web trên Safari nếu user vô tình đóng tab
-        secondaryBtn.href = ORIGIN + "/go-redirect?t=" + encodeURIComponent(TOKEN);
-        secondaryText.textContent = "🔄 Mở lại web trên Safari";
-        secondaryBtn.className = "btn btn-secondary";
-        secondaryBtn.style.display = "flex";
-
-        hintEl.innerHTML =
-          "<b>Sau khi bấm nút trên:</b><br>" +
-          "• iOS sẽ hỏi <b>\"Open in App?\"</b> → bấm <b>Open</b>.<br>" +
-          "• App Netflix sẽ mở và <b>tự đăng nhập</b> bằng session vừa redeem trên Safari.<br>" +
-          "• Nếu app vẫn yêu cầu login: bạn cần đăng nhập 1 lần trong app với cùng account, lần sau sẽ tự động.";
+      descEl.textContent = "Bấm nút bên dưới để mở Netflix đã đăng nhập sẵn.";
+      openText.textContent = "▶ OPEN HERE";
+      if (isIOS) {
+        infoBox.style.display = "block";
+        infoBox.innerHTML =
+          "<b>Trên iPhone:</b> Bấm <b>\"OPEN HERE\"</b> → iOS sẽ hỏi <b>\"Open in App?\"</b> → bấm <b>Open</b> để mở app Netflix.";
       } else {
-        // ─── Bước 1: mở Safari để Netflix web redeem + set cookie ───
-        stepList.style.display = "block";
-        step1.classList.add("active");
-
-        statusBox.className = "status info";
-        statusBox.innerHTML = "ℹ️ <b>Cách hoạt động:</b><br>" +
-          "Bước 1: Bấm nút bên dưới → mở <b>Safari</b>.<br>" +
-          "Bước 2: Netflix web tự redeem token, đăng nhập, set cookie session.<br>" +
-          "Bước 3: Quay lại trang này, bấm nút mở app Netflix.<br>" +
-          "<br><b>⚠️ Yêu cầu:</b> bạn cần <b>đăng nhập 1 lần</b> trong app Netflix với cùng account trước (để app nhận diện session từ Safari).";
-
-        // Nút chính: mở /go-redirect (server redeem + redirect sang netflix.com)
-        // Safari sẽ mở netflix.com, Netflix web tự redeem + set cookie.
-        primaryBtn.href = ORIGIN + "/go-redirect?t=" + encodeURIComponent(TOKEN);
-        primaryText.textContent = "1️⃣ Mở Safari → Netflix đăng nhập";
-        primaryBtn.className = "btn";
-        primaryBtn.style.display = "flex";
-
-        // Nút phụ: thử mở app trực tiếp (có thể fail vì app không redeem)
-        secondaryBtn.href = "https://www.netflix.com/?nftoken=" + encodeURIComponent(TOKEN);
-        secondaryText.textContent = "📱 Thử mở app trực tiếp";
-        secondaryBtn.className = "btn btn-secondary";
-        secondaryBtn.style.display = "flex";
-
-        hintEl.innerHTML =
-          "<b>Lưu ý quan trọng:</b><br>" +
-          "• Sau khi Netflix đăng nhập trên Safari, <b>quay lại tab này</b> (không cần đóng Safari).<br>" +
-          "• Nếu trang không tự reload, bấm <b>Quay lại</b> rồi bấm lại link gốc.<br>" +
-          "• Cookie session Netflix nằm trong Safari, app Netflix sẽ dùng iCloud Keychain để share session (cùng Apple ID).";
+        infoBox.style.display = "block";
+        infoBox.innerHTML =
+          "<b>Trên Android:</b> Bấm <b>\"OPEN HERE\"</b> → app Netflix sẽ mở và tự đăng nhập.";
       }
-    }
-    // ─── Desktop: mở thẳng web Netflix ─────────────────────────────────────
-    else {
+    } else {
+      // Desktop: mở thẳng web Netflix (Netflix web parse ?nftoken= → login)
       badge.textContent = "🖥️ Desktop";
-      titleEl.textContent = "Mở Netflix";
       descEl.textContent = "Bấm nút bên dưới để mở Netflix đã đăng nhập sẵn trên trình duyệt.";
-      statusBox.className = "status ok";
-      statusBox.innerHTML = "✅ Sẵn sàng! Netflix sẽ tự đăng nhập — không cần nhập email/mật khẩu.";
-
-      primaryBtn.href = "https://www.netflix.com/?nftoken=" + encodeURIComponent(TOKEN);
-      primaryText.textContent = "🎬 Mở Netflix";
-      primaryBtn.className = "btn btn-success";
-      primaryBtn.style.display = "flex";
-
-      secondaryBtn.style.display = "none";
+      openText.textContent = "▶ OPEN HERE";
+      infoBox.style.display = "none";
     }
   </script>
 </body>
