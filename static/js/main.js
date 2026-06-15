@@ -77,14 +77,13 @@ function buildCard(data, index = null) {
     card.dataset.copyCount = "0";
     card.dataset.copyLimit = String(COPY_LIMIT);
     const indexBadge = index !== null ? `<span class="badge badge-index">#${index}</span>` : "";
-    // 3 link formats:
-    //   - web     = https://www.netflix.com/?nftoken=<token>  ← RELIABLE NHẤT
-    //               (AASA exclude path "?" → mở Safari/Chrome → Netflix web redeem)
-    //   - app     = https://www.netflix.com/unsupported?nftoken=<token>  ← backup
-    //   - landing = {server}/go?t=<token>  ← tự auto-redirect, dùng khi paste chat
+    // 2 link formats:
+    //   - web = https://www.netflix.com/?nftoken=<token>          ← dùng cho iOS/PC
+    //           (AASA exclude path "?" → mở Safari/Chrome → Netflix web redeem)
+    //   - app = https://www.netflix.com/unsupported?nftoken=<token>  ← dùng cho Android
+    //           (Netflix App Link claim path /unsupported → mở app → app redeem token)
     const webUrl = data.web || ("https://www.netflix.com/?nftoken=" + encodeURIComponent(data.token || ""));
-    const appUrl = data.app || ("https://www.netflix.com/unsupported?nftoken=" + encodeURIComponent(data.token || ""));
-    const landingUrl = data.landing || data.mobile || webUrl;
+    const appUrl = data.app || data.mobile || ("https://www.netflix.com/unsupported?nftoken=" + encodeURIComponent(data.token || ""));
     card.innerHTML = `
       <div class="result-header">
         ${indexBadge}
@@ -93,24 +92,15 @@ function buildCard(data, index = null) {
       </div>
 
       <div class="link-row link-row-primary">
-        <span class="link-label">🌐 Web (Khuyên dùng)</span>
+        <span class="link-label">🌐 Web (iOS / PC)</span>
         <a class="link-url" href="${webUrl}" target="_blank" title="${webUrl}">${webUrl}</a>
         <button class="btn btn-sm btn-copy" data-copy-text="${webUrl}" onclick="copyWithQuota(this)">Copy</button>
       </div>
 
       <div class="link-row">
-        <span class="link-label">📱 App Netflix</span>
+        <span class="link-label">📱 App Netflix (Android)</span>
         <a class="link-url" href="${appUrl}" target="_blank" title="${appUrl}">${appUrl}</a>
         <button class="btn btn-sm btn-copy" data-copy-text="${appUrl}" onclick="copyWithQuota(this)">Copy</button>
-      </div>
-
-      <div class="link-row">
-        <span class="link-label">🚀 Tự động mở</span>
-        <a class="link-url" href="${landingUrl}" target="_blank" title="${landingUrl}">${landingUrl}</a>
-        <button class="btn btn-sm btn-copy" data-copy-text="${landingUrl}" onclick="copyWithQuota(this)">Copy</button>
-        <span class="copy-quota-bar">
-          📋 <span class="copy-count">0</span>/${COPY_LIMIT}
-        </span>
       </div>
 
       <div class="usage-grid">

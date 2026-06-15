@@ -7,13 +7,14 @@ APP_TITLE = "Netflix Login Link Generator"
 APP_SUBTITLE = "Chuyển đổi Cookie Netflix thành Link Đăng Nhập"
 
 # --- URL đăng nhập ---
-# LOGIN_BASE = link PC (mở thẳng trên trình duyệt desktop → redeem web → /browse).
-# MOBILE: KHÔNG dùng link netflix trực tiếp. app.py build link landing /go trên CHÍNH
-#   server này; vì máy có app Netflix sẽ cướp link netflix.com qua App/Universal Link rồi
-#   đẩy sang endpoint chết /oAuth2Login → NSES-404. Trang /go (domain khác) né được, rồi
-#   tự điều hướng nội-trình-duyệt sang LOGIN_BASE để redeem. Xem app.py _build_mobile_link / go.html.
+# LOGIN_BASE = link web chính (AASA exclude path "?" → mở Safari/Chrome, KHÔNG bị
+#   app cướp). Netflix web nhận ?nftoken= → redeem nội bộ → set session cookies
+#   → redirect /browse. Dùng cho iOS/PC.
+#   Cho Android, app.py _attach_mobile_link build thêm app_url =
+#   https://www.netflix.com/unsupported?nftoken=<token> để Netflix App Link
+#   claim → mở app Netflix → app redeem token.
 LOGIN_BASE = "https://netflix.com/?nftoken="
-# Alias tương thích code cũ. (Mobile thực tế đi qua /go, KHÔNG dùng 2 alias này nữa.)
+# Alias tương thích code cũ.
 PC_LOGIN_BASE = LOGIN_BASE
 MOBILE_LOGIN_BASE = LOGIN_BASE
 

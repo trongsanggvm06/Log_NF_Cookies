@@ -364,10 +364,10 @@ def _build_result(token: str, expiry, method_name: str) -> dict:
     url = LOGIN_BASE + token
     return {
         "ok": True,
-        "token": token,   # raw token — app.py dùng để build link mobile /go (tránh app cướp link)
+        "token": token,   # raw token — app.py dùng để build web_url / app_url
         "url": url,
         "pc": url,
-        # mobile mặc định = link netflix; app.py sẽ ghi đè bằng URL /go (landing page) khi có request context
+        # mobile mặc định = link netflix; app.py sẽ ghi đè bằng URL app (/unsupported?nftoken=) khi có request context
         "mobile": url,
         "expiry": _fmt_expiry(expiry),
         "build_id": method_name,

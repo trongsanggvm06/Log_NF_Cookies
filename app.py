@@ -1,5 +1,5 @@
 import urllib.parse
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify
 import config
 from netflix import parse_cookies, parse_cookie_blocks, get_login_links, probe_endpoint, split_cookie_blocks
 
@@ -49,33 +49,29 @@ def handle_unexpected_error(err):
 
 
 def _attach_mobile_link(result: dict) -> dict:
-    """Ghi đè field 'mobile' / 'app' / 'landing' bằng URL phù hợp cho từng platform.
+    """Ghi đè field 'mobile' / 'app' / 'web' bằng URL phù hợp cho từng platform.
 
     URL outputs:
       - web:      https://www.netflix.com/?nftoken=<token>
-                  RELIABLE NHẤT — AASA exclude path "?" → mở Safari/Chrome → Netflix
-                  web redeem token. Dùng được cho mọi platform kể cả khi không có app.
+                  Dùng cho iOS/PC — AASA exclude path "?" → mở Safari/Chrome → Netflix
+                  web redeem token → login OK.
       - app:      https://www.netflix.com/unsupported?nftoken=<token>
-                  Backup cho TH có app Netflix + AASA cache local còn claim path này.
-      - landing:  {scheme}://{host}/go?t=<token>
-                  Trang trung gian tự auto-redirect sang web_url. Dùng khi paste
-                  vào chat/SMS để giữ branding server, hoặc khi cần auto-redirect.
-      - mobile:   alias backward-compat = landing.
+                  Dùng cho Android — Netflix App Link claim path /unsupported → mở
+                  app Netflix → app tự redeem token → login OK.
+      - mobile:   alias backward-compat = app_url (link Netflix thuần, không qua
+                  server). Khi user mở link này trực tiếp → Netflix mở app hoặc
+                  web tùy platform, KHÔNG cần landing page trung gian.
     """
     if not (result.get("ok") and result.get("token")):
         return result
     token = result["token"]
-    host = request.host
-    scheme = "http" if host.startswith(("127.", "localhost", "0.0.0.0")) else "https"
 
     web_url = "https://www.netflix.com/?nftoken=" + urllib.parse.quote(token, safe="")
     app_url = "https://www.netflix.com/unsupported?nftoken=" + urllib.parse.quote(token, safe="")
-    landing_url = f"{scheme}://{host}/go?t=" + urllib.parse.quote(token, safe="")
 
     result["web"] = web_url
     result["app"] = app_url
-    result["landing"] = landing_url
-    result["mobile"] = landing_url
+    result["mobile"] = app_url
     return result
 
 
@@ -88,102 +84,6 @@ def index():
         subtitle=config.APP_SUBTITLE,
         missing=missing,
     )
-
-
-@app.route("/go")
-@app.route("/go/<path:token>")
-def go(token=None):
-    """
-    Landing page trung gian cho mobile: hiển thị UI, gọi /redeem (server-side),
-    set cookie session Netflix rồi redirect sang netflix.com an toàn (không bị app cướp).
-
-    Chấp nhận token ở:
-      - Query ?t=<token> hoặc ?token=<token>
-      - Path /go/<token> (fallback khi query bị cắt)
-    """
-    # Chấp nhận token ở: ?t=, ?token=, hoặc path /go/<token>
-    token = (
-        request.args.get("t")
-        or request.args.get("token")
-        or (token or "")
-    ).strip()
-    if not token:
-        return redirect(url_for("index", missing="token"))
-    # Unquote 1-2 lần phòng Telegram/SMS encode 2 lần
-    token = urllib.parse.unquote(token)
-    if "%" in token:
-        try:
-            token = urllib.parse.unquote(token)
-        except Exception:
-            pass
-    # Build URL theo 2 kiểu:
-    #   web_url = https://www.netflix.com/?nftoken=<token> — AASA của netflix.com EXCLUDE
-    #     path "?" → iOS/Android KHÔNG mở app Netflix qua Universal Link, mà mở
-    #     Safari/Chrome. Netflix web nhận ?nftoken= → gọi nội bộ loginWithToken
-    #     → set session cookies → redirect /browse → user login. Đây là URL
-    #     RELIABLE NHẤT, dùng được cho cả iOS/Android browser, PC, và cả khi
-    #     không có app Netflix.
-    #   app_url = https://www.netflix.com/unsupported?nftoken=<token> — AASA cũng
-    #     exclude path /unsupported (xem apple-app-site-association của netflix.com),
-    #     nhưng Netflix web trang /unsupported KHÔNG auto-redeem token (chỉ show
-    #     form login). Path này dùng làm backup: nếu user có app Netflix cũ
-    #     version đôi khi vẫn claim /unsupported qua cache AASA local → app mở
-    #     → app redeem token.
-    # Chọn open_url theo platform (detect từ User-Agent server-side, không phụ
-    # thuộc JS client):
-    #   - Android: dùng /unsupported?nftoken=... → Netflix App Link claim path
-    #     này → click → mở app → app TỰ redeem token (đã test OK).
-    #     KHÔNG dùng /?nftoken=... vì path "?" root KHÔNG bị Android App Link
-    #     claim → mở Chrome thay vì app → user thấy trang login trên web.
-    #   - iOS: AASA EXCLUDE cả /unsupported lẫn /?nftoken= (path "?" root).
-    #     iOS sẽ mở Safari với Netflix web → web redeem token → login OK.
-    #     Dùng /?nftoken=... cho iOS (mở web thuần, không bị app cướp).
-    #   - PC/Desktop: mở web thuần → /?nftoken=... là chuẩn nhất.
-    ua = (request.headers.get("User-Agent") or "").lower()
-    is_android = "android" in ua
-    if is_android:
-        open_url = "https://www.netflix.com/unsupported?nftoken=" + urllib.parse.quote(token, safe="")
-    else:
-        open_url = "https://www.netflix.com/?nftoken=" + urllib.parse.quote(token, safe="")
-    # Vẫn giữ web_url/app_url để không phá backward-compat với template cũ (nếu có).
-    web_url = open_url
-    app_url = "https://www.netflix.com/unsupported?nftoken=" + urllib.parse.quote(token, safe="")
-    return render_template(
-        "go.html",
-        token=token,
-        open_url=open_url,
-        web_url=web_url,
-        app_url=app_url,
-        pc_base=config.LOGIN_BASE,
-        host=request.host,
-    )
-
-
-@app.route("/go-redirect")
-def go_redirect():
-    """
-    Endpoint phụ — redirect thẳng sang URL Netflix web (?nftoken=).
-
-    Lý do giữ endpoint này: một số user Telegram/SMS shorten URL cắt mất query
-    → /go?t=X bị cắt thành /go. Trang /go nếu không có token thì redirect về
-    /?missing=token. Endpoint này cho phép user mở /go-redirect?t=X (1 URL ngắn)
-    để server xử lý tương tự /go nhưng KHÔNG render UI (chỉ 302 redirect).
-    """
-    token = (
-        request.args.get("t")
-        or request.args.get("token")
-        or ""
-    ).strip()
-    token = urllib.parse.unquote(token) if token else ""
-    if "%" in token:
-        try:
-            token = urllib.parse.unquote(token)
-        except Exception:
-            pass
-    if not token:
-        return redirect(url_for("index", missing="token"))
-    target = "https://www.netflix.com/?nftoken=" + urllib.parse.quote(token, safe="")
-    return redirect(target, code=302)
 
 
 @app.route("/api/generate", methods=["POST"])
