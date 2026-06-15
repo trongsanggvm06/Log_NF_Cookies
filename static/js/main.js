@@ -50,14 +50,16 @@ async function copyWithQuota(btn) {
   count += 1;
   card.dataset.copyCount = String(count);
 
-  const countSpan = card.querySelector(".copy-count");
-  if (countSpan) countSpan.textContent = String(count);
+  // Update counter ở TẤT CẢ .copy-count trong card (vì quota CHUNG cho cả 2 nút)
+  card.querySelectorAll(".copy-count").forEach((s) => {
+    s.textContent = String(count);
+  });
 
-  const bar = card.querySelector(".copy-quota-bar");
-  if (bar) {
-    bar.classList.toggle("quota-warn", count >= limit - 1 && count < limit);
-    bar.classList.toggle("quota-done", count >= limit);
-  }
+  // Đổi màu quota theo mốc
+  card.querySelectorAll(".copy-quota").forEach((q) => {
+    q.classList.toggle("quota-warn", count >= limit - 1 && count < limit);
+    q.classList.toggle("quota-done", count >= limit);
+  });
 
   if (count >= limit) {
     card.querySelectorAll(".btn-copy").forEach((b) => {
@@ -95,12 +97,14 @@ function buildCard(data, index = null) {
         <span class="link-label">🌐 Web (iOS / PC)</span>
         <a class="link-url" href="${webUrl}" target="_blank" title="${webUrl}">${webUrl}</a>
         <button class="btn btn-sm btn-copy" data-copy-text="${webUrl}" onclick="copyWithQuota(this)">Copy</button>
+        <span class="copy-quota">📋 <span class="copy-count">0</span>/${COPY_LIMIT}</span>
       </div>
 
       <div class="link-row">
         <span class="link-label">📱 App Netflix (Android)</span>
         <a class="link-url" href="${appUrl}" target="_blank" title="${appUrl}">${appUrl}</a>
         <button class="btn btn-sm btn-copy" data-copy-text="${appUrl}" onclick="copyWithQuota(this)">Copy</button>
+        <span class="copy-quota">📋 <span class="copy-count">0</span>/${COPY_LIMIT}</span>
       </div>
 
       <div class="usage-grid">
@@ -112,11 +116,9 @@ function buildCard(data, index = null) {
           <div class="usage-icon">📱</div>
           <div class="usage-title">Có app Netflix: dùng <b>Link App</b> — dán vào Safari rồi chọn "Open in App" để mở app.</div>
         </div>
-        <div class="usage-item">
-          <div class="usage-icon">🚀</div>
-          <div class="usage-title"><b>Link Tự động mở</b> — paste vào chat/SMS, bấm 1 phát là tự chuyển sang Netflix.</div>
-        </div>
       </div>
+
+      <div class="quota-note">⚠️ Mỗi link chỉ copy tối đa <b>${COPY_LIMIT} lần</b> để tránh lạm dụng. Hết lượt thì cần tạo lại từ cookies.</div>
 
       <div class="expiry-row">⏰ Hết hạn: <span>${data.expiry}</span></div>
     `;

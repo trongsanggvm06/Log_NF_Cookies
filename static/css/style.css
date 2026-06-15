@@ -348,6 +348,55 @@ textarea::placeholder { color: #555; }
 
 .copy-quota-bar.quota-done .copy-count { color: var(--primary); }
 
+/* Compact quota cho 2 link rows (Web + App) */
+.copy-quota {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  transition: all .25s;
+  white-space: nowrap;
+  margin-left: 6px;
+}
+
+.copy-quota .copy-count {
+  color: var(--success);
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+
+.copy-quota.quota-warn {
+  background: #3a2a0a;
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.copy-quota.quota-warn .copy-count { color: var(--error); }
+
+.copy-quota.quota-done {
+  background: #3a0a0a;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.copy-quota.quota-done .copy-count { color: var(--primary); }
+
+.quota-note {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--card2);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
 .btn-copy.disabled,
 .btn-copy:disabled {
   opacity: 0.45;
@@ -501,4 +550,5 @@ textarea::placeholder { color: #555; }
 @media (max-width: 540px) {
   .link-url { max-width: 200px; font-size: 0.68rem; }
   .link-row { flex-direction: column; align-items: flex-start; }
+  .copy-quota { margin-left: 0; margin-top: 4px; align-self: flex-end; }
 }
