@@ -6,17 +6,13 @@ SECRET_KEY = "netflix-login-app-2024"
 APP_TITLE = "Netflix Login Link Generator"
 APP_SUBTITLE = "Chuyển đổi Cookie Netflix thành Link Đăng Nhập"
 
-# --- URL đăng nhập ---
-# LOGIN_BASE = link web chính (AASA exclude path "?" → mở Safari/Chrome, KHÔNG bị
-#   app cướp). Netflix web nhận ?nftoken= → redeem nội bộ → set session cookies
-#   → redirect /browse. Dùng cho iOS/PC.
-#   Cho Android, app.py _attach_mobile_link build thêm app_url =
-#   https://www.netflix.com/unsupported?nftoken=<token> để Netflix App Link
-#   claim → mở app Netflix → app redeem token.
-LOGIN_BASE = "https://netflix.com/?nftoken="
-# Alias tương thích code cũ.
-PC_LOGIN_BASE = LOGIN_BASE
-MOBILE_LOGIN_BASE = LOGIN_BASE
+# --- URL đăng nhập (port từ Netflix-Cookie-Checker-main/main.py:2017-2024) ---
+# PC:    netflix.com/?nftoken=<token>            ← dùng cho iOS/PC/Desktop
+# Phone: netflix.com/unsupported?nftoken=<token> ← dùng cho Android
+PC_LOGIN_BASE = "https://netflix.com/?nftoken="
+MOBILE_LOGIN_BASE = "https://netflix.com/unsupported?nftoken="
+# Alias backward-compat — LOGIN_BASE = PC (1 link chính)
+LOGIN_BASE = PC_LOGIN_BASE
 
 # ─── ENDPOINT TUỲ CHỈNH ────────────────────────────────────────────────────
 # Nếu bạn biết đúng endpoint Netflix, điền vào đây.

@@ -3,19 +3,22 @@ Netflix Login Link Generator
 
 Token NATIVE qua iOS FTL NFToken — path ["account","token","default"].
   Endpoint: https://ios.prod.ftl.netflix.com/iosui/user/15.48
-  Logic port NGUYÊN từ bot tele (Netflix-Cookie-Checker-main/bot.py):
+  Logic port NGUYÊN từ Netflix-Cookie-Checker-main/main.py:
     - GET với NFTOKEN_QUERY_PARAMS + NFTOKEN_HEADERS cố định (ESN/guid hardcode)
     - version 15.48, gửi đầy đủ cookie
-    - 1 token dùng cho CẢ PC lẫn Mobile:
-        https://netflix.com/?nftoken=<token>
+    - 1 token sinh ra 2 link ĐĂNG NHẬP cho 2 thiết bị:
+        + PC:  https://netflix.com/?nftoken=<token>           ← dùng cho PC/Desktop/iOS
+        + Mobile: https://netflix.com/unsupported?nftoken=<token>  ← dùng cho Android
+        (Checker main.py: build_nftoken_links, lines 2011-2024)
 
-Lý do 1 link cho tất cả: Netflix AASA chính thức (apple-app-site-association) loại
-trừ /unsupported khỏi Universal Link. Path "/* (root) thì KHÔNG bị exclude → iOS
-handoff sang app Netflix, Android mở app qua App Link, web/desktop set session
-cookie và redirect vào Netflix. 1 link dùng được cho cả 3 platform.
+    - decode_netflix_value (URL-decode + escape unicode/hex) port từ
+      Checker main.py:1101 → dùng để normalize token trước khi build link,
+      tránh ký tự escape khiến link bị hỏng.
+    - get_nftoken_expiry_utc: format "YYYY-MM-DD HH:MM:SS UTC" (port từ Checker).
 
-Ref: github.com/harshitkamboj/Netflix-NFToken-Generator
+Ref: github.com/harshitkamboj/Netflix-Cookie-Checker
 """
+import html
 import json
 import re
 import urllib.parse
@@ -24,7 +27,7 @@ from datetime import datetime, timezone
 import requests
 from urllib3.exceptions import InsecureRequestWarning
 
-from config import LOGIN_BASE, USER_AGENT
+from config import LOGIN_BASE, MOBILE_LOGIN_BASE, PC_LOGIN_BASE, USER_AGENT
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
@@ -360,16 +363,25 @@ def _fmt_expiry(expiry) -> str:
         return str(expiry)
 
 
-def _build_result(token: str, expiry, method_name: str) -> dict:
-    url = LOGIN_BASE + token
+def _build_result(token: str, expiry_str: str, method_name: str) -> dict:
+    """
+    Build kết quả trả về cho app.py.
+
+    URL outputs (port từ Checker main.py:2017-2024):
+      - web:    PC_LOGIN_BASE    + token    (https://netflix.com/?nftoken=...)
+                Dùng cho iOS/PC — AASA exclude path "?" → mở Safari/Chrome → Netflix
+                web redeem token → login OK.
+      - app:    MOBILE_LOGIN_BASE + token   (https://netflix.com/unsupported?nftoken=...)
+                Dùng cho Android — Netflix App Link claim path /unsupported → mở
+                app Netflix → app tự redeem token → login OK.
+      - pc/mobile: alias backward-compat cho UI cũ.
+    """
     return {
         "ok": True,
-        "token": token,   # raw token — app.py dùng để build web_url / app_url
-        "url": url,
-        "pc": url,
-        # mobile mặc định = link netflix; app.py sẽ ghi đè bằng URL app (/unsupported?nftoken=) khi có request context
-        "mobile": url,
-        "expiry": _fmt_expiry(expiry),
+        "token": token,   # raw token (đã decode) — app.py dùng để build web_url / app_url
+        "pc": PC_LOGIN_BASE + token,
+        "mobile": MOBILE_LOGIN_BASE + token,
+        "expiry": expiry_str,
         "build_id": method_name,
         "strategy": method_name,
     }
@@ -393,17 +405,142 @@ def _build_cookie_header(cookies_dict: dict) -> str:
     return "; ".join(parts)
 
 
+# ─── Port từ Netflix-Cookie-Checker-main/main.py ────────────────────────────
+# Helpers: decode_netflix_value, _decode_unicode_escape, _decode_hex_escape
+# Mục đích: normalize value Netflix trả về (token, expiry) — bỏ URL-encoding
+# và escape unicode/hex sequences. Checker dùng ở main.py:1101-1120.
+
+
+def _decode_unicode_escape(match):
+    try:
+        return chr(int(match.group(1), 16))
+    except Exception:
+        return match.group(0)
+
+
+def _decode_hex_escape(match):
+    try:
+        return chr(int(match.group(1), 16))
+    except Exception:
+        return match.group(0)
+
+
+def decode_netflix_value(value):
+    """Port từ Checker main.py:1101 → normalize token/expiry text.
+
+    Xử lý: html.unescape, \\x20 / \\u00A0 / &nbsp;, escaped slashes/quotes,
+    \\uXXXX, \\xXX (lặp tối đa 3 lần để gỡ nested escape).
+    """
+    if value is None:
+        return None
+    cleaned = html.unescape(str(value))
+    replacements = {
+        "\\x20": " ",
+        "\\u00A0": " ",
+        "\\u00a0": " ",
+        "&nbsp;": " ",
+        "u00A0": " ",
+    }
+    for source, target in replacements.items():
+        cleaned = cleaned.replace(source, target)
+    cleaned = cleaned.replace("\\/", "/").replace('\\"', '"').replace("\\n", " ").replace("\\t", " ")
+    for _ in range(3):
+        previous = cleaned
+        cleaned = re.sub(r"\\u([0-9a-fA-F]{4})", _decode_unicode_escape, cleaned)
+        cleaned = re.sub(r"\\x([0-9a-fA-F]{2})", _decode_hex_escape, cleaned)
+        if cleaned == previous:
+            break
+    return cleaned
+
+
+def get_nftoken_expiry_utc(expires):
+    """Port từ Checker main.py:2027 → format "YYYY-MM-DD HH:MM:SS UTC".
+
+    Input có thể là:
+      - int/float Unix timestamp (giây HOẶC mili-giây nếu len > 12 chữ số)
+      - string chứa số
+      - string đã format sẵn
+    """
+    normalized = decode_netflix_value(expires)
+    if isinstance(normalized, str):
+        normalized = normalized.strip()
+        # Nếu đã là string format sẵn "YYYY-MM-DD HH:MM:SS UTC" → trả về luôn
+        if re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC$", normalized):
+            return normalized
+        if normalized.isdigit():
+            try:
+                normalized = int(normalized)
+            except Exception:
+                normalized = None
+    if isinstance(normalized, (int, float)):
+        try:
+            timestamp = int(normalized)
+            if len(str(abs(timestamp))) == 13:
+                timestamp //= 1000
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        except Exception:
+            pass
+    return str(expires) if expires is not None else ""
+
+
+def has_usable_nftoken(nftoken_data):
+    """Port từ Checker main.py:2060 → check token hợp lệ (không phải placeholder)."""
+    if not isinstance(nftoken_data, dict):
+        return False
+    token = decode_netflix_value(nftoken_data.get("token"))
+    if not token:
+        return False
+    if str(token).strip().lower() in {"unavailable", "unknown", "none", "null", "false"}:
+        return False
+    return True
+
+
+def build_nftoken_links(token, mode="both"):
+    """Port từ Checker bot.py:1022-1023 → build PC + Phone link, dùng raw token.
+
+    Mode:
+      - "pc"     → [("🖥️ PC Login",     PC_LOGIN_BASE    + token)]
+      - "mobile" → [("📱 Phone Login",  MOBILE_LOGIN_BASE + token)]
+      - "both"   → cả 2 (mặc định)
+
+    Lưu ý: token KHÔNG URL-encode (giống bot.py gốc). NetflixId token là base64-safe
+    + URL-safe, encode thêm không cần thiết.
+    """
+    normalized_token = decode_netflix_value(token)
+    if not normalized_token:
+        return []
+    normalized_mode = str(mode or "both").strip().lower()
+    if normalized_mode in {"pc", "desktop", "computer"}:
+        return [("🖥️ PC Login", PC_LOGIN_BASE + normalized_token)]
+    if normalized_mode in {"mobile", "phone", "android"}:
+        return [("📱 Phone Login", MOBILE_LOGIN_BASE + normalized_token)]
+    return [
+        ("🖥️ PC Login", PC_LOGIN_BASE + normalized_token),
+        ("📱 Phone Login", MOBILE_LOGIN_BASE + normalized_token),
+    ]
+
+
 # ─── NFToken (port từ bot tele create_nftoken) ────────────────────────────────
 
 def create_nftoken(cookies_dict: dict, attempts: int = 3) -> tuple:
     """
-    Lấy token NATIVE qua iOS FTL account.token.default — logic giống hệt bot tele.
-    Trả về (token_data | None, error | None, logs).
+    Lấy token NATIVE qua iOS FTL account.token.default — port từ
+    Netflix-Cookie-Checker-main/bot.py:188 (create_nftoken, bản gốc)
+
+    Khác biệt với main.py: bot.py dùng requests.Session() + gửi TOÀN BỘ cookies
+    (NetflixId + SecureNetflixId + nfvdid) — comment bot.py:196-198 giải thích
+    Netflix iOS API yêu cầu đầy đủ, không chỉ riêng NetflixId.
+    Giữ 3-tuple return (token, error, logs) để tương thích callers cũ.
     """
-    if not cookies_dict.get("NetflixId"):
+    netflix_id = cookies_dict.get("NetflixId") or cookies_dict.get("netflixid")
+    if not netflix_id:
         return None, "Không tìm thấy NetflixId trong cookie", []
 
-    cookie_header = _build_cookie_header(cookies_dict)
+    try:
+        attempts = max(1, int(attempts))
+    except Exception:
+        attempts = 1
+
     logs = []
     last_error = "NFToken API error"
 
@@ -411,14 +548,17 @@ def create_nftoken(cookies_dict: dict, attempts: int = 3) -> tuple:
         log = {"method": f"NFToken iosui/15.48 (try {attempt})",
                "url": NFTOKEN_API_URL, "status": None, "preview": ""}
         try:
+            # Port nguyên bot.py:198-208 — Session + cookies.update
+            session = requests.Session()
+            session.cookies.update(cookies_dict)
+            session.verify = False
             headers = dict(NFTOKEN_HEADERS)
-            headers["Cookie"] = cookie_header
-            resp = requests.get(
+
+            resp = session.get(
                 NFTOKEN_API_URL,
                 params=NFTOKEN_QUERY_PARAMS,
                 headers=headers,
                 timeout=30,
-                verify=False,
             )
             log["status"] = resp.status_code
             log["preview"] = (resp.text or "")[:300]
@@ -439,6 +579,7 @@ def create_nftoken(cookies_dict: dict, attempts: int = 3) -> tuple:
             except Exception:
                 data = None
 
+            # Port nguyên bot.py:220-226 — không decode token (giữ raw)
             token = None
             expires = None
             if isinstance(data, dict):
@@ -448,13 +589,19 @@ def create_nftoken(cookies_dict: dict, attempts: int = 3) -> tuple:
                 )
                 token = token_data.get("token")
                 expires = token_data.get("expires")
+
             if not token:
+                # Regex fallback — bắt được cả trường hợp Netflix trả token ở path khác
                 m = re.search(r'"token"\s*:\s*"([^"]+)"', resp.text or "")
                 if m:
                     token = m.group(1)
 
             if token:
-                return {"token": token, "expires": expires}, None, logs
+                # Format expiry thành string "YYYY-MM-DD HH:MM:SS UTC" (port Checker main.py:2042)
+                return {
+                    "token": token,
+                    "expires_at_utc": get_nftoken_expiry_utc(expires),
+                }, None, logs
 
             # HTTP 200 nhưng value rỗng {} → Netflix NHẬN request nhưng KHÔNG cấp token cho
             # account này (từ chối mềm). Hay gặp với cookie "sống" trên web nhưng luồng token
@@ -561,12 +708,12 @@ def _fallback_create_token(cookies_dict: dict) -> tuple:
 
 def get_login_links(cookies_dict: dict) -> dict:
     """
-    Tạo 1 login link dùng được cho cả PC, Android, iOS:
-        https://netflix.com/?nftoken=<token>
+    Tạo 2 login link cho PC và Mobile từ cookies — port từ
+    Netflix-Cookie-Checker-main/main.py (create_nftoken + build_nftoken_links).
 
-    - PC/Desktop: mở trong trình duyệt → Netflix web set session → auto login.
-    - iOS: click/paste vào Safari → Universal Link handoff sang app Netflix → auto login.
-    - Android: click/paste vào Chrome → App Link mở app Netflix → auto login.
+    Output 2 URL khác nhau (Checker main.py:2017-2024):
+      - PC:    https://netflix.com/?nftoken=<token>           ← iOS/PC/Desktop
+      - Mobile: https://netflix.com/unsupported?nftoken=<token> ← Android (App Link)
     Token có hiệu lực ~1 giờ, không bị bind IP/region/device.
     """
     if not cookies_dict.get("NetflixId"):
@@ -574,18 +721,29 @@ def get_login_links(cookies_dict: dict) -> dict:
 
     token_data, error, logs = create_nftoken(cookies_dict, attempts=3)
 
-    if error or not token_data:
+    if error or not token_data or not has_usable_nftoken(token_data):
         return {
             "ok": False,
             "error": error or "Cookies die (NFToken không cấp token)",
             "debug": logs,
         }
 
+    # Token đã được decode_netflix_value normalize trong create_nftoken
     token = token_data["token"]
-    expiry = token_data.get("expires")
-    method = "iOS FTL NFToken 15.48 (native)"
+    expiry_str = token_data.get("expires_at_utc") or token_data.get("expires") or ""
+    method = "iOS FTL NFToken 15.48 (native, port from Checker)"
 
-    return {**_build_result(token, expiry, method), "debug": logs}
+    # Tái build URL từ build_nftoken_links (port Checker) để đảm bảo format chuẩn
+    links = build_nftoken_links(token, mode="both")
+    pc_url = next((u for lbl, u in links if "PC" in lbl), PC_LOGIN_BASE + token)
+    mobile_url = next((u for lbl, u in links if "Phone" in lbl or "Mobile" in lbl), MOBILE_LOGIN_BASE + token)
+
+    return {
+        **_build_result(token, expiry_str, method),
+        "pc": pc_url,
+        "mobile": mobile_url,
+        "debug": logs,
+    }
 
 
 # ─── Debug probe ──────────────────────────────────────────────────────────────

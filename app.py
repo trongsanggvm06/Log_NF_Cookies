@@ -1,4 +1,3 @@
-import urllib.parse
 from flask import Flask, render_template, request, jsonify
 import config
 from netflix import parse_cookies, parse_cookie_blocks, get_login_links, probe_endpoint, split_cookie_blocks
@@ -49,29 +48,26 @@ def handle_unexpected_error(err):
 
 
 def _attach_mobile_link(result: dict) -> dict:
-    """Ghi đè field 'mobile' / 'app' / 'web' bằng URL phù hợp cho từng platform.
+    """Đảm bảo field 'web' / 'app' / 'mobile' / 'pc' đầy đủ — port từ Checker
+    bot.py:1022-1023 (PC + Phone link build bằng raw token, không URL-encode).
 
-    URL outputs:
-      - web:      https://www.netflix.com/?nftoken=<token>
-                  Dùng cho iOS/PC — AASA exclude path "?" → mở Safari/Chrome → Netflix
-                  web redeem token → login OK.
-      - app:      https://www.netflix.com/unsupported?nftoken=<token>
-                  Dùng cho Android — Netflix App Link claim path /unsupported → mở
-                  app Netflix → app tự redeem token → login OK.
-      - mobile:   alias backward-compat = app_url (link Netflix thuần, không qua
-                  server). Khi user mở link này trực tiếp → Netflix mở app hoặc
-                  web tùy platform, KHÔNG cần landing page trung gian.
+    Logic tạo URL nằm trong netflix.py (build_nftoken_links) → ở đây chỉ
+    ensure các field backward-compat tồn tại cho frontend.
+      - web:    PC link    (https://netflix.com/?nftoken=...)
+      - app:    Mobile link (https://netflix.com/unsupported?nftoken=...)
+      - mobile: alias = app (link Netflix cho Android)
     """
     if not (result.get("ok") and result.get("token")):
         return result
-    token = result["token"]
 
-    web_url = "https://www.netflix.com/?nftoken=" + urllib.parse.quote(token, safe="")
-    app_url = "https://www.netflix.com/unsupported?nftoken=" + urllib.parse.quote(token, safe="")
+    # Port bot.py:1022-1023 — ghép raw token, KHÔNG urllib.parse.quote
+    pc_url = result.get("pc") or (config.PC_LOGIN_BASE + result["token"])
+    mobile_url = result.get("mobile") or (config.MOBILE_LOGIN_BASE + result["token"])
 
-    result["web"] = web_url
-    result["app"] = app_url
-    result["mobile"] = app_url
+    result["web"] = pc_url
+    result["app"] = mobile_url
+    result["mobile"] = mobile_url
+    result["pc"] = pc_url
     return result
 
 
