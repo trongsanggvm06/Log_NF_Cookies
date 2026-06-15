@@ -139,7 +139,8 @@ def batch():
         result["index"] = i
         results.append(result)
         if i < len(blocks):
-            time.sleep(random.uniform(1.0, 3.0))
+            # 3-6s delay để tránh Netflix rate-limit IP (rất nhạy với nhiều request liên tiếp).
+            time.sleep(random.uniform(3.0, 6.0))
     return jsonify({"results": results})
 
 

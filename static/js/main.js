@@ -281,7 +281,10 @@ const progressText = document.getElementById("batch-progress-text");
 const progressPercent = document.getElementById("batch-progress-percent");
 const progressFill = document.getElementById("batch-progress-fill");
 
-const THROTTLE_MS = 300;  // delay giữa các request → né rate limit Netflix
+// Throttle MS: delay giữa các request → né rate limit Netflix.
+// Netflix rate-limit IP rất nhanh (~3-5 request liên tiếp trong vài giây).
+// 3000ms là mức tối thiểu an toàn cho batch lớn (10-20 cookies).
+const THROTTLE_MS = 3000;
 let cancelRequested = false;
 
 document.getElementById("clear-batch").addEventListener("click", () => {

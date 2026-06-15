@@ -894,10 +894,16 @@ def _check_cookie_alive(cookies_dict: dict) -> tuple:
         return True, None  # Loi network → de tiep tuc thu
 
 
-def _create_token_ios_ftl(cookies_dict: dict, attempts: int = 3) -> tuple:
+def _create_token_ios_ftl(cookies_dict: dict, attempts: int = 1) -> tuple:
     """
     Tạo token qua iOS FTL endpoint (port từ Checker bot.py create_nftoken).
     Trả về ({token, expires, source} | None, log_dict | None).
+
+    Mặc định attempts=1 vì:
+      1. _check_cookie_alive() đã verify cookie OK trước đó.
+      2. Netflix rate-limit rất nhạy — gọi 3 lần liên tiếp dễ bị 429/403,
+         ảnh hưởng các cookie sau trong batch.
+      3. Nếu iOS FTL fail → cookie hoặc die, hoặc rate-limit → user nên retry sau.
     """
     logs = []
     last_error = "iOS FTL error"
