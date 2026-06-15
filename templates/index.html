@@ -15,6 +15,24 @@
       <p>{{ subtitle }}</p>
     </header>
 
+    {% if missing %}
+    <div class="alert alert-{{ missing }}" role="alert" style="
+      margin-bottom:18px;padding:12px 14px;border-radius:8px;
+      font-size:.9rem;line-height:1.5;border:1px solid;
+      {% if missing == 'token' %}background:#2a1515;border-color:#5a2020;color:#ff8a8a;
+      {% elif missing == 'notfound' %}background:#2a2515;border-color:#5a4d20;color:#e6c878;
+      {% else %}background:#2a1515;border-color:#5a2020;color:#ff8a8a;{% endif %}
+    ">
+      {% if missing == 'token' %}
+        ⚠️ Link <b>/go</b> bị thiếu hoặc cắt mất token. Hãy copy lại link đầy đủ từ trang kết quả (Link Điện thoại).
+      {% elif missing == 'notfound' %}
+        🔍 Trang bạn truy cập không tồn tại. Quay lại <a href="/" style="color:#fff;text-decoration:underline;">trang chủ</a>.
+      {% else %}
+        ❌ Lỗi server. Vui lòng thử lại.
+      {% endif %}
+    </div>
+    {% endif %}
+
     <!-- TABS -->
     <div class="tabs">
       <button class="tab-btn active" data-tab="tab-single">🔑 Đơn lẻ</button>

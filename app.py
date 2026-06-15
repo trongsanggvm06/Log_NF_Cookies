@@ -1,5 +1,5 @@
 import urllib.parse
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 import config
 from netflix import parse_cookies, parse_cookie_blocks, get_login_links, probe_endpoint, split_cookie_blocks
 
@@ -7,9 +7,45 @@ app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 
 
+@app.errorhandler(404)
+def handle_404(err):
+    """Trả HTML 404 thân thiện thay vì JSON, để user paste nhầm URL không thấy 'JSON error'."""
+    return render_template(
+        "index.html",
+        title=config.APP_TITLE,
+        subtitle=config.APP_SUBTITLE,
+        missing="notfound",
+    ), 404
+
+
+@app.errorhandler(405)
+def handle_405(err):
+    return jsonify({"ok": False, "error": "Method không được phép"}), 405
+
+
 @app.errorhandler(Exception)
 def handle_unexpected_error(err):
-    return jsonify({"ok": False, "error": f"Lỗi server nội bộ: {type(err).__name__}"}), 500
+    # Không bắt HTTPException (Flask tự xử lý 404/405/etc) — nhưng ta vẫn cần convert
+    # sang Response object đúng cách để status code không bị mất.
+    from werkzeug.exceptions import HTTPException
+    if isinstance(err, HTTPException):
+        # Nếu là 404/405 và đã có handler riêng → Flask sẽ gọi handler đó trước, nên
+        # code này chỉ chạy cho các HTTPException khác (400, 500 custom…).
+        # Trả về response với code đúng.
+        return err.get_response() if hasattr(err, "get_response") else (
+            jsonify({"ok": False, "error": str(err)}), err.code or 500
+        )
+    app.logger.exception("Unhandled error")
+    # Nếu request muốn JSON (API) → trả JSON
+    if request.path.startswith("/api/") or request.path.startswith("/redeem"):
+        return jsonify({"ok": False, "error": f"Lỗi server nội bộ: {type(err).__name__}"}), 500
+    # Còn lại trả HTML
+    return render_template(
+        "index.html",
+        title=config.APP_TITLE,
+        subtitle=config.APP_SUBTITLE,
+        missing="server",
+    ), 500
 
 
 def _build_mobile_link(token: str) -> str:
@@ -17,11 +53,11 @@ def _build_mobile_link(token: str) -> str:
     Link mobile = landing page /go TRÊN CHÍNH server này (KHÔNG phải netflix.com).
     Lý do: gửi thẳng netflix.com/?nftoken= thì máy có app Netflix sẽ bị App Link/Universal Link
     cướp link -> app đẩy sang endpoint chết /oAuth2Login -> NSES-404 "Lost your way".
-    Mở qua /go (domain khác netflix) thì app KHÔNG cướp; trang /go tự điều hướng sang netflix.com
-    NGAY TRONG trình duyệt (điều hướng nội-trình-duyệt không kích App Link) -> redeem web chạy đúng.
+    Mở qua /go (domain khác netflix) thì app KHÔNG cướp; trang /go gọi server /redeem
+    (server-side redeem từ IP server) rồi set cookie session Netflix rồi redirect sang
+    netflix.com -> mở app/web đều login được, không còn NSES-404.
     """
     host = request.host  # vd: myapp.onrender.com
-    # Render/host thường terminate TLS upstream -> ép https cho host không phải local
     scheme = "http" if host.startswith(("127.", "localhost", "0.0.0.0")) else "https"
     return f"{scheme}://{host}/go?t=" + urllib.parse.quote(token, safe="")
 
@@ -35,22 +71,83 @@ def _attach_mobile_link(result: dict) -> dict:
 
 @app.route("/")
 def index():
-    return render_template("index.html", title=config.APP_TITLE, subtitle=config.APP_SUBTITLE)
+    missing = request.args.get("missing", "").strip()
+    return render_template(
+        "index.html",
+        title=config.APP_TITLE,
+        subtitle=config.APP_SUBTITLE,
+        missing=missing,
+    )
 
 
 @app.route("/go")
-def go():
-    """Landing page trung gian cho mobile: né app-intercept rồi redeem nftoken trong trình duyệt."""
-    token = request.args.get("t", "").strip()
+@app.route("/go/<path:token>")
+def go(token=None):
+    """
+    Landing page trung gian cho mobile: hiển thị UI, gọi /redeem (server-side),
+    set cookie session Netflix rồi redirect sang netflix.com an toàn (không bị app cướp).
+
+    Chấp nhận token ở:
+      - Query ?t=<token> hoặc ?token=<token>
+      - Path /go/<token> (fallback khi query bị cắt)
+    """
+    # Chấp nhận token ở: ?t=, ?token=, hoặc path /go/<token>
+    token = (
+        request.args.get("t")
+        or request.args.get("token")
+        or (token or "")
+    ).strip()
     if not token:
-        return "Thiếu token đăng nhập.", 400
-    return render_template("go.html", token=token, pc_base=config.LOGIN_BASE)
+        return redirect(url_for("index", missing="token"))
+    # Unquote 1-2 lần phòng Telegram/SMS encode 2 lần
+    token = urllib.parse.unquote(token)
+    if "%" in token:
+        try:
+            token = urllib.parse.unquote(token)
+        except Exception:
+            pass
+    return render_template("go.html", token=token, pc_base=config.LOGIN_BASE, host=request.host)
+
+
+@app.route("/redeem", methods=["POST", "GET"])
+def redeem():
+    """
+    Server-side redeem NFToken: gọi Netflix từ IP server (khớp IP phát sinh FTL token).
+    Trả JSON { ok, redirect, cookies, error } để go.html xử lý phía client.
+
+    Body JSON (POST): { "token": "<nftoken>" }
+    Query: ?t=<nftoken> (cho GET — dễ test bằng curl)
+    """
+    from netflix import _server_redeem_nftoken
+    if request.method == "GET":
+        token = (request.args.get("t") or request.args.get("token") or "").strip()
+    else:
+        body = request.get_json(silent=True) or {}
+        token = (body.get("token") or body.get("t") or "").strip()
+    token = urllib.parse.unquote(token) if token else ""
+    if "%" in token:
+        try:
+            token = urllib.parse.unquote(token)
+        except Exception:
+            pass
+    if not token:
+        return jsonify({"ok": False, "error": "Thiếu token"}), 400
+    result = _server_redeem_nftoken(token)
+    return jsonify(result), (200 if result.get("ok") else 502)
 
 
 @app.route("/api/generate", methods=["POST"])
 def generate():
     body = request.get_json(silent=True) or {}
-    raw = body.get("cookies", "").strip()
+    raw = body.get("cookies", "")
+    # Defensive: chỉ chấp nhận string. Nếu user/attacker gửi None/list/int → 400
+    # rõ ràng thay vì 500 AttributeError.
+    if not isinstance(raw, str):
+        return jsonify({
+            "ok": False,
+            "error": "Trường 'cookies' phải là chuỗi (string).",
+        }), 400
+    raw = raw.strip()
     if not raw:
         return jsonify({"ok": False, "error": "Vui lòng nhập cookie"}), 400
 
@@ -78,7 +175,10 @@ def batch():
     import time
     import random
     body = request.get_json(silent=True) or {}
-    raw_all = body.get("cookies", "").strip()
+    raw_all = body.get("cookies", "")
+    if not isinstance(raw_all, str):
+        return jsonify({"ok": False, "error": "Trường 'cookies' phải là chuỗi."}), 400
+    raw_all = raw_all.strip()
     if not raw_all:
         return jsonify({"ok": False, "error": "Vui lòng nhập cookie"}), 400
     blocks = split_cookie_blocks(raw_all)
@@ -101,7 +201,10 @@ def batch():
 def split():
     """Tách input thành các block cookie đã được hydrate để frontend xử lý progressive batch ổn định hơn."""
     body = request.get_json(silent=True) or {}
-    raw_all = body.get("cookies", "").strip()
+    raw_all = body.get("cookies", "")
+    if not isinstance(raw_all, str):
+        return jsonify({"ok": False, "error": "Trường 'cookies' phải là chuỗi."}), 400
+    raw_all = raw_all.strip()
     if not raw_all:
         return jsonify({"ok": False, "error": "Vui lòng nhập cookie"}), 400
 
@@ -131,9 +234,14 @@ def debug():
     Trả về raw response để giúp tìm endpoint đúng.
     """
     body = request.get_json(silent=True) or {}
-    raw = body.get("cookies", "").strip()
-    url = body.get("url", "").strip()
+    raw = body.get("cookies", "")
+    url = body.get("url", "")
     method = body.get("method", "POST").upper()
+
+    if not isinstance(raw, str) or not isinstance(url, str):
+        return jsonify({"error": "Trường 'cookies' và 'url' phải là chuỗi."}), 400
+    raw = raw.strip()
+    url = url.strip()
 
     if not raw:
         return jsonify({"error": "Cần cookie"}), 400

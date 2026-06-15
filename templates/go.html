@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex,nofollow" />
-  <title>Redirecting…</title>
+  <title>Đang đăng nhập Netflix…</title>
   <style>
-    :root { --accent:#3d7eff; --bg:#1b1b1f; --text:#f2f2f2; --muted:#9a9aa2; }
+    :root { --accent:#3d7eff; --bg:#1b1b1f; --text:#f2f2f2; --muted:#9a9aa2; --err:#ff6b6b; --warn-bg:#2a2515; --warn-bd:#5a4d20; --warn-fg:#e6c878; --ok:#4ade80; }
     * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
     html,body { margin:0; height:100%; }
     body {
@@ -29,62 +29,231 @@
       text-decoration:none; cursor:pointer; margin-bottom:12px;
     }
     .btn:active { opacity:.85; }
+    .btn-secondary { background:#33333a; }
+    .btn-success { background:var(--ok); color:#000; }
     .hint { font-size:12.5px; color:var(--muted); margin-top:18px; }
-    .warn {
-      display:none; background:#2a2515; border:1px solid #5a4d20; color:#e6c878;
-      border-radius:8px; padding:14px; font-size:13.5px; line-height:1.5; margin-bottom:18px; text-align:left;
+    .warn, .errbox, .okbox {
+      display:none; border-radius:8px; padding:14px; font-size:13.5px;
+      line-height:1.5; margin-bottom:18px; text-align:left;
     }
-    .warn b { color:var(--text); }
-    .copy { background:#33333a; color:#fff; border:0; border-radius:6px; padding:9px 12px; font-size:13px; cursor:pointer; margin-top:8px; }
+    .warn { background:var(--warn-bg); border:1px solid var(--warn-bd); color:var(--warn-fg); }
+    .errbox { background:#2a1515; border:1px solid #5a2020; color:var(--err); }
+    .okbox { background:#0e2a1a; border:1px solid #2a5a3a; color:var(--ok); }
+    .warn b, .errbox b, .okbox b { color:var(--text); }
+    .copy { background:#33333a; color:#fff; border:0; border-radius:6px; padding:9px 12px; font-size:13px; cursor:pointer; margin-top:8px; margin-right:6px; }
+    code { background:#2a2a30; padding:2px 6px; border-radius:4px; font-size:12.5px; }
+    .steps { text-align:left; font-size:13px; line-height:1.7; color:var(--text); margin:10px 0; }
+    .steps li { margin-bottom:6px; }
   </style>
 </head>
 <body>
   <div class="box">
 
     <div id="inapp-warn" class="warn">
-      ⚠️ You're opening this inside the <b>Messenger/Facebook/Zalo</b> browser.
-      Tap the <b>⋯</b> menu at the top and choose <b>“Open in Chrome / Safari / browser”</b>,
-      or copy the link below and paste it into Chrome/Safari.
+      ⚠️ Bạn đang mở trong trình duyệt <b>Messenger / Facebook / Zalo</b>.<br>
+      Bấm <b>⋯</b> ở trên → chọn <b>"Mở bằng Chrome / Safari"</b>, hoặc copy link bên dưới.
       <button class="copy" id="copy-link">📋 Copy link</button>
     </div>
 
+    <div id="local-warn" class="warn">
+      ⚠️ Link này dùng địa chỉ <b>local</b> (<code id="local-host"></code>) —
+      chỉ mở được trên <b>chính thiết bị chạy server</b>.<br><br>
+      👉 Mở trên thiết bị đó, hoặc dùng URL public (vd: <code>https://&lt;your-app&gt;.onrender.com</code>).
+    </div>
+
+    <div id="err-box" class="errbox"></div>
+    <div id="ok-box" class="okbox"></div>
+
     <div class="spinner" id="spin"></div>
-    <h1 id="title">Redirecting…</h1>
-    <p id="desc">Please wait, you'll be taken to your destination in a second. If nothing happens, tap Continue.</p>
+    <h1 id="title">Đang đăng nhập…</h1>
+    <p id="desc">Vui lòng chờ 2–3 giây, không tắt trang này.</p>
 
-    <a class="btn" id="open-btn" href="#" rel="noopener">Continue</a>
+    <a class="btn" id="open-btn" href="#" rel="noopener" style="display:none;">Mở Netflix</a>
+    <a class="btn btn-success" id="open-app-btn" href="#" rel="noopener" style="display:none;">📱 Mở app Netflix (đã có sẵn cookie)</a>
+    <a class="btn btn-secondary" id="open-web-btn" href="#" rel="noopener" style="display:none;">🌐 Mở Netflix trên web</a>
 
-    <div class="hint">Not working? Open this link in <b>Chrome</b> or <b>Safari</b> (not inside Messenger).</div>
+    <div class="hint" id="hint">Nếu mở app bị kẹt ở màn hình đăng nhập, thử <b>Mở Netflix trên web</b> trước.</div>
   </div>
 
   <script>
-    // Token được server inject an toàn (JSON-encoded). KHÔNG log ra ngoài.
+    // Token được server inject an toàn (JSON-encoded).
     var TOKEN = {{ token | tojson }};
-    // Base lấy từ config (pc_base) để khỏi lệch nếu sau này đổi LOGIN_BASE.
-    var NF_BASE = {{ pc_base | tojson }};
-    // encodeURIComponent để + / = trong token không bị hiểu sai khi điều hướng.
-    var NF_URL = NF_BASE + encodeURIComponent(TOKEN);
+    var NF_BASE = {{ pc_base | tojson }};   // vd "https://netflix.com/?nftoken="
+    var HOST = {{ host | tojson }};
+    var NF_TOKEN_URL = NF_BASE + encodeURIComponent(TOKEN);   // URL có nftoken
+    var NF_BROWSE_URL = "https://www.netflix.com/browse";      // URL nội bộ, không có query
 
     var openBtn = document.getElementById("open-btn");
-    openBtn.setAttribute("href", NF_URL);
+    var openAppBtn = document.getElementById("open-app-btn");
+    var openWebBtn = document.getElementById("open-web-btn");
+    var spinEl = document.getElementById("spin");
+    var title = document.getElementById("title");
+    var desc = document.getElementById("desc");
+    var errBox = document.getElementById("err-box");
+    var okBox = document.getElementById("ok-box");
+    var hintEl = document.getElementById("hint");
 
-    // Điều hướng nội-trình-duyệt: KHÔNG kích App Link/Universal Link (khác với tap link từ app khác).
-    function go() { window.location.replace(NF_URL); }
-    openBtn.addEventListener("click", function (e) { e.preventDefault(); go(); });
-
-    // Phát hiện in-app webview (Messenger/FB/Zalo/Line…) — những nơi redeem hay fail.
+    // ─── Phát hiện môi trường ──────────────────────────────────────────────────
     var ua = navigator.userAgent || "";
     var inApp = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\/|Zalo|MicroMessenger|Twitter/i.test(ua);
-    if (inApp) {
+    var isIOS = /iPhone|iPad|iPod/i.test(ua);
+    var isAndroid = /Android/i.test(ua);
+    var isMobile = isIOS || isAndroid;
+    var isLocal = /^(127\.|localhost|0\.0\.0\.0|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/i.test(HOST);
+
+    // ─── Local host: dừng sớm ──────────────────────────────────────────────────
+    if (isLocal) {
+      var lh = document.getElementById("local-host");
+      if (lh) lh.textContent = HOST;
+      document.getElementById("local-warn").style.display = "block";
+      spinEl.style.display = "none";
+      title.textContent = "Local address — không truy cập từ xa";
+      desc.textContent = "Bạn cần mở link này trên chính thiết bị chạy server, hoặc dùng link deploy public.";
+      hintEl.style.display = "none";
+    }
+    // In-app: hiện cảnh báo + nút bấm, không tự redirect
+    else if (inApp) {
       document.getElementById("inapp-warn").style.display = "block";
-      document.getElementById("spin").style.display = "none";
-      document.getElementById("title").textContent = "Open in Chrome / Safari";
-      document.getElementById("desc").textContent = "In-app browsers may not work. Please open this link in Chrome or Safari.";
-    } else {
-      // Trình duyệt thật → tự chuyển sau 1s cho người dùng kịp thấy màn hình.
-      setTimeout(go, 1000);
+      spinEl.style.display = "none";
+      title.textContent = "Mở bằng trình duyệt ngoài";
+      desc.textContent = "Bấm ⋯ ở góc trên → chọn “Mở bằng Chrome/Safari”, hoặc copy link.";
+      openBtn.href = NF_TOKEN_URL;
+      openBtn.textContent = "🌐 Mở Netflix trên web";
+      openBtn.style.display = "block";
+      hintEl.style.display = "none";
+    }
+    // Trình duyệt thật → tự redeem
+    else {
+      // Bắt đầu ngay
+      start();
     }
 
+    // ─── Hàm chính ────────────────────────────────────────────────────────────
+    async function start() {
+      try {
+        title.textContent = "Đang đăng nhập…";
+        desc.textContent = "Vui lòng chờ 2–3 giây.";
+
+        var resp;
+        try {
+          resp = await fetch("/redeem", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: TOKEN }),
+          });
+        } catch (netErr) {
+          showError("Không kết nối được server /redeem: " + (netErr && netErr.message || netErr));
+          return;
+        }
+
+        var data = {};
+        try { data = await resp.json(); } catch (e) { data = {}; }
+
+        if (data && data.ok) {
+          // 1. Set toàn bộ cookie Netflix server trả về vào document.cookie.
+          //    Cookie Netflix domain = .netflix.com → set được từ browser bất kỳ
+          //    (trừ httpOnly). Khi browser redirect sang netflix.com, cookie này
+          //    sẽ được gửi kèm → Netflix nhận diện session → mở web login.
+          //
+          //  LƯU Ý QUAN TRỌNG VỀ APP:
+          //  - iOS Universal Link và Android App Link KHÔNG share cookie từ
+          //    browser sang app (mỗi app có cookie sandbox riêng). Tức là nếu
+          //    user bấm "Mở app", app Netflix sẽ mở nhưng KHÔNG có session
+          //    → vẫn ra màn hình đăng nhập. Đây là behavior mặc định của OS,
+          //    không phải bug app.
+          //  - Vì vậy flow ĐÚNG cho "vào app, không hỏi đăng nhập" là:
+          //      a) Mở web (cookie đã set → Netflix nhận session → login web).
+          //      b) Trên web Netflix có nút "Sign in to app on this device"
+          //         hoặc QR code — user quét QR bằng app Netflix → app login.
+          //      c) Hoặc user vào web Netflix trên app Netflix (Safari in-app).
+          //  - Nút "Mở app" chỉ để user tiện mở app, nhưng cookie KHÔNG share.
+          var cookies = data.set_cookies || [];
+          var setOk = 0;
+          cookies.forEach(function (c) {
+            try {
+              if (c.httpOnly) return; // không set được từ JS
+              var exp = c.expires ? "; expires=" + c.expires : "";
+              var dom = c.domain ? "; domain=" + c.domain : "; domain=.netflix.com";
+              var pth = c.path ? "; path=" + c.path : "; path=/";
+              var sc = c.secure ? "; secure" : "";
+              document.cookie = c.name + "=" + c.value + exp + dom + pth + sc;
+              setOk++;
+            } catch (e) {}
+          });
+
+          // 2. URL đích — ưu tiên web (cookie đã set) thay vì app.
+          var target = data.redirect || NF_BROWSE_URL;
+
+          // 3. Hiện thông báo thành công.
+          spinEl.style.display = "none";
+          okBox.style.display = "block";
+          if (setOk > 0) {
+            okBox.innerHTML = "✅ <b>Đã set " + setOk + " cookie session Netflix!</b> Bấm <b>Mở Netflix trên web</b> để vào. App Netflix không tự nhận cookie từ browser (giới hạn của iOS/Android) — sau khi vào web, bạn có thể dùng QR/sign-in trong app để link tài khoản.";
+          } else {
+            okBox.innerHTML = "⚠️ Server trả về nhưng <b>không set được cookie nào</b> (toàn bộ HttpOnly). Bấm <b>Mở app Netflix</b> hoặc thử lại.";
+          }
+
+          title.textContent = "Sẵn sàng mở Netflix";
+          desc.textContent = "Khuyến nghị: mở web trước (cookie đã có sẵn).";
+
+          // App button: HTTPS Universal Link. Cookie KHÔNG share → user vẫn phải
+          // đăng nhập trong app (trừ khi web link tài khoản sang app qua QR).
+          openAppBtn.href = NF_BROWSE_URL;
+          openAppBtn.textContent = isMobile ? "📱 Mở app Netflix" : "🎬 Mở Netflix";
+          openAppBtn.style.display = "block";
+
+          // Web button (ưu tiên) — cookie đã set → Netflix nhận session → login.
+          openWebBtn.href = NF_BROWSE_URL;
+          openWebBtn.textContent = "🌐 Mở Netflix trên web (khuyến nghị)";
+          openWebBtn.style.display = "block";
+
+          // 4. Tự động redirect tới WEB sau 0.8s (vì web nhận cookie ngay).
+          //    Nếu user muốn mở app, bấm nút "Mở app Netflix" thủ công.
+          setTimeout(function () {
+            try {
+              window.location.href = NF_BROWSE_URL;
+            } catch (e) {}
+          }, 800);
+        } else if (data && data.fallback && data.redirect) {
+          // Server redeem fail → vẫn cho user mở web Netflix
+          showFallback(data.redirect, data.message);
+        } else {
+          showError((data && data.error) || "Không redeem được (server lỗi).");
+        }
+      } catch (err) {
+        showError("Lỗi: " + (err && err.message ? err.message : err));
+      }
+    }
+
+    function showFallback(redirectUrl, msg) {
+      spinEl.style.display = "none";
+      title.textContent = "Đang mở Netflix…";
+      desc.textContent = msg || "Server không redeem được NFToken — sẽ thử mở trực tiếp netflix.com";
+      okBox.style.display = "block";
+      okBox.innerHTML = "⚠️ <b>Server không redeem được</b> (do IP/cookie mismatch). Bấm nút dưới để thử mở Netflix. Nếu Netflix yêu cầu đăng nhập, cookie này đã die.";
+      openWebBtn.href = redirectUrl;
+      openWebBtn.textContent = "🌐 Mở Netflix";
+      openWebBtn.style.display = "block";
+      openAppBtn.href = redirectUrl;
+      openAppBtn.textContent = "📱 Mở app Netflix";
+      openAppBtn.style.display = "block";
+    }
+
+    function showError(msg) {
+      spinEl.style.display = "none";
+      errBox.style.display = "block";
+      errBox.innerHTML = "❌ " + msg + "<br><br><b>Khắc phục:</b><ol class='steps'>" +
+        "<li>Đợi 30s rồi bấm <b>Thử lại</b> (cookie Netflix có thể bị rate limit).</li>" +
+        "<li>Nếu vẫn fail, paste lại <b>Link PC</b> từ trang kết quả vào Chrome desktop — đăng nhập web là chắc chắn nhất.</li>" +
+        "<li>Cookie có thể đã hết hạn — lấy cookie mới rồi tạo lại link.</li></ol>";
+      title.textContent = "Đăng nhập thất bại";
+      desc.textContent = "";
+      openBtn.href = NF_TOKEN_URL;
+      openBtn.textContent = "🔄 Thử lại (mở web)";
+      openBtn.style.display = "block";
+    }
+
+    // ─── Copy link ─────────────────────────────────────────────────────────────
     var copyBtn = document.getElementById("copy-link");
     if (copyBtn) {
       copyBtn.addEventListener("click", function () {

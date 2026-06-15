@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 import requests
 from urllib3.exceptions import InsecureRequestWarning
 
-from config import LOGIN_BASE
+from config import LOGIN_BASE, USER_AGENT
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
@@ -262,7 +262,12 @@ def parse_cookies(raw: str) -> dict:
 
     def _take(name, value):
         if (name in COOKIE_KEYS and isinstance(value, str)
-                and value and name not in cookie_dict):
+                and name not in cookie_dict):
+            # Trước đây bỏ qua value rỗng → cookie flwssn/nfvdid bị mất.
+            # Netflix vẫn nhận cookie với value="" (rdr track ID) — phải giữ.
+            # Riêng NetflixId/SecureNetflixId nếu rỗng thì bỏ (vô nghĩa, sẽ fail ở NFToken).
+            if not value and name in ("NetflixId", "SecureNetflixId"):
+                return
             cookie_dict[name] = _decode_cookie_value(value)
 
     def _from_objects(items):
@@ -476,7 +481,80 @@ def create_nftoken(cookies_dict: dict, attempts: int = 3) -> tuple:
             log["preview"] = str(e)[:200]
             logs.append(log)
 
+    # ─── Fallback D: thử endpoint phụ nếu FTL từ chối ─────────────────────────────
+    # Thử loginWithToken với token = "auto" (Netflix endpoint tự cấp) — đôi khi cookie
+    # "sống" nhưng iOS FTL từ chối do path-specific, trong khi web path vẫn cấp token.
+    fb_token, fb_log = _fallback_create_token(cookies_dict)
+    if fb_token:
+        logs.append(fb_log)
+        return fb_token, None, logs
+    if fb_log:
+        logs.append(fb_log)
+
     return None, last_error, logs
+
+
+def _fallback_create_token(cookies_dict: dict) -> tuple:
+    """
+    Fallback khi FTL từ chối: thử 1 endpoint phụ.
+    Trả về ({token, expires} | None, log_dict | None).
+    """
+    cookie_header = _build_cookie_header(cookies_dict)
+    headers = {
+        "User-Agent": NFTOKEN_HEADERS["User-Agent"],
+        "x-netflix.request.client.user.guid":
+            NFTOKEN_HEADERS["x-netflix.request.client.user.guid"],
+        "x-netflix.context.app-version":
+            NFTOKEN_HEADERS["x-netflix.context.app-version"],
+        "Cookie": cookie_header,
+    }
+    # Endpoint web account token (path mới) — Netflix thường trả token ngay cả khi
+    # FTL iOS từ chối với cùng cookie.
+    urls = [
+        "https://www.netflix.com/api/shakti/v1db76858/createAutoLoginToken",
+        "https://www.netflix.com/api/shakti/1b8b10944f/createAutoLoginToken",
+    ]
+    for url in urls:
+        try:
+            resp = requests.post(
+                url,
+                headers={**headers, "Content-Type": "application/json"},
+                data='{}',
+                timeout=20,
+                verify=False,
+            )
+            if resp.status_code == 200:
+                data = {}
+                try:
+                    data = resp.json()
+                except Exception:
+                    pass
+                token = None
+                if isinstance(data, dict):
+                    token = (
+                        data.get("token")
+                        or data.get("nftoken")
+                        or (data.get("value") or {}).get("token")
+                    )
+                if not token:
+                    m = re.search(r'"(?:token|nftoken)"\s*:\s*"([^"]+)"', resp.text or "")
+                    if m:
+                        token = m.group(1)
+                if token:
+                    return {"token": token, "expires": None}, {
+                        "method": "fallback createAutoLoginToken",
+                        "url": url,
+                        "status": resp.status_code,
+                        "preview": "ok (fallback)",
+                    }
+        except Exception as e:
+            return None, {
+                "method": "fallback createAutoLoginToken",
+                "url": url,
+                "status": "ERR",
+                "preview": str(e)[:200],
+            }
+    return None, None
 
 
 # ─── Main generation function ────────────────────────────────────────────────
@@ -536,3 +614,254 @@ def probe_endpoint(cookies_dict: dict, url: str, method: str = "POST") -> dict:
             "cookies_sent": list(cookies_dict.keys()),
             "token_found": False,
         }
+
+
+# ─── Server-side redeem (gọi từ /redeem trong app.py) ────────────────────────
+# Lý do cần: NFToken do server Render sinh ra, redeem từ IP khác (mobile user) có thể
+# Netflix từ chối → 404 trong app. Redeem lại từ IP server (đúng IP phát sinh token)
+# sẽ pass; cookie session Netflix sẽ được set vào response, client set vào browser
+# rồi mở netflix.com → login ok cả web lẫn app (app tự đọc cookie NetflixId).
+
+REDEEM_HEADERS_BASE = {
+    "User-Agent": USER_AGENT,
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.9,vi;q=0.8",
+    "origin": "https://www.netflix.com",
+    "referer": "https://www.netflix.com/",
+    "x-netflix.request.client.user.guid": NFTOKEN_HEADERS.get(
+        "x-netflix.request.client.user.guid", "A4CS633D7VCBPE2GPK2HL4EKOE"
+    ),
+    "x-netflix.context.app-version": NFTOKEN_HEADERS.get(
+        "x-netflix.context.app-version", "15.48.1"
+    ),
+}
+
+# Một số buildId Netflix hay dùng (lấy từ web HTML hiện tại; fallback nếu /loginWithToken 404)
+NETFLIX_BUILDS = [
+    "1b8b10944f",
+    "v1db76858",
+    "v1f0c5e3f",
+    "v1234567",
+]
+
+
+def _server_redeem_nftoken(token: str) -> dict:
+    """
+    Server-side redeem NFToken: gọi Netflix login API từ IP server.
+
+    Trả về dict:
+      ok: bool
+      redirect: URL netflix client nên mở (thường https://www.netflix.com/browse)
+      set_cookies: list[{name, value, domain, path, expires}] — Netflix session cookie
+        client sẽ set thủ công vào document.cookie để web/app login.
+      message: thông báo thân thiện
+    """
+    last_err = "redeem failed"
+    for build_id in NETFLIX_BUILDS:
+        url = f"https://www.netflix.com/api/shakti/{build_id}/loginWithToken"
+        headers = dict(REDEEM_HEADERS_BASE)
+        headers["content-type"] = "application/json"
+        # Body Netflix hay dùng: {"token": "<nftoken>"} hoặc query string.
+        # Endpoint loginWithToken chấp nhận cả 2.
+        try:
+            # Body JSON dùng concat thường (KHÔNG dùng str.format vì token Netflix có thể
+            # chứa ký tự '{' hoặc '}' → str.format throw KeyError/IndexError).
+            safe_token = token.replace("\\", "\\\\").replace('"', '\\"')
+            body_json = '{"token":"' + safe_token + '"}'
+            resp = requests.post(
+                url,
+                headers=headers,
+                params={"token": token},
+                data=body_json,
+                timeout=20,
+                verify=False,
+            )
+        except requests.exceptions.RequestException as e:
+            last_err = f"network: {e}"
+            continue
+
+        if resp.status_code == 200:
+            # Đọc Set-Cookie từ response
+            set_cookies_raw = resp.headers.get("set-cookie", "") or ""
+            cookies_out = _parse_set_cookie(set_cookies_raw)
+            # Nếu response có body chứa session/user info → ok
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            user = (
+                data.get("user") or {}
+            ) if isinstance(data, dict) else {}
+            if user and not cookies_out:
+                last_err = "200 nhưng không có session cookie"
+                continue
+            return {
+                "ok": True,
+                "redirect": "https://www.netflix.com/browse",
+                "set_cookies": cookies_out,
+                "user": (user.get("email") if isinstance(user, dict) else None),
+                "build_id": build_id,
+                "message": "Redeem thành công — đang mở Netflix…",
+            }
+        last_err = f"HTTP {resp.status_code} (build {build_id})"
+    # Fallback cuối: trả URL /?nftoken=… để client tự redeem từ browser
+    return {
+        "ok": False,
+        "redirect": "https://www.netflix.com/?nftoken=" + urllib.parse.quote(token, safe=""),
+        "error": last_err,
+        "fallback": True,
+        "message": "Server không redeem được NFToken — sẽ thử mở trực tiếp netflix.com",
+    }
+
+
+def _parse_set_cookie(raw: str) -> list:
+    """
+    Parse raw Set-Cookie header thành list[{name, value, domain, path, expires, ...}].
+
+    KHÔNG dùng regex split vì Set-Cookie có Expires chứa dấu phẩy vd
+    "Expires=Wed, 21 Oct 2026 07:28:00 GMT" → split nhầm thành nhiều cookie.
+
+    Cách an toàn: dùng http.cookiejar.extract_cookies để parse từng response.
+    """
+    if not raw:
+        return []
+
+    # Tạo response giả để http.cookiejar xử lý đúng chuẩn RFC 6265.
+    from http.cookiejar import DefaultCookiePolicy
+    try:
+        from http.cookiejar import Cookie, CookieJar
+    except ImportError:
+        return []
+
+    # requests có thể trả raw string nhiều cookie ngăn bởi ", ". Mỗi cookie có
+    # format "name=value; attr1=val1; attr2; ...". Expires bên trong có dấu ", "
+    # nhưng CookieJar chấp nhận cả string multi-cookie qua CookieJar.make_cookies.
+    jar = CookieJar(policy=DefaultCookiePolicy())
+    # Tạo response object giả
+    from urllib.request import Request as _Req
+    from http.client import HTTPResponse as _HResp
+    # Đơn giản hơn: dùng http.cookies.SimpleCookie thử cho từng đoạn sau khi
+    # tách bằng heuristic tốt hơn.
+    chunks = _safe_split_set_cookie(raw)
+    out = []
+    from http.cookies import SimpleCookie
+    for chunk in chunks:
+        try:
+            sc = SimpleCookie()
+            # SimpleCookie không chấp nhận Expires có dấu phẩy. Patch: thay ", " → ",,"
+            # trong phần Expires trước khi parse.
+            patched = _escape_expires_comma(chunk)
+            sc.load(patched)
+            for name, morsel in sc.items():
+                out.append({
+                    "name": name,
+                    "value": morsel.value,
+                    "domain": morsel.get("domain", ".netflix.com") or ".netflix.com",
+                    "path": morsel.get("path", "/") or "/",
+                    "expires": morsel.get("expires"),
+                    "secure": bool(morsel.get("secure")),
+                    "httpOnly": bool(morsel.get("httponly")),
+                    "sameSite": morsel.get("samesite"),
+                })
+        except Exception:
+            # Fallback cuối: parse thủ công
+            try:
+                head = chunk.split(";")[0]
+                if "=" not in head:
+                    continue
+                n, _, v = head.partition("=")
+                out.append({
+                    "name": n.strip(),
+                    "value": v.strip(),
+                    "domain": ".netflix.com",
+                    "path": "/",
+                    "expires": None,
+                    "secure": False,
+                    "httpOnly": False,
+                    "sameSite": None,
+                })
+            except Exception:
+                continue
+    return out
+
+
+def _safe_split_set_cookie(raw: str) -> list:
+    """
+    Tách chuỗi nhiều Set-Cookie thành list, dựa trên vị trí ký tự ';' cuối
+    của cookie trước + dấu phân cách ", " trước tên cookie mới.
+    An toàn với Expires có dấu phẩy vì ta chỉ tách khi gặp
+    pattern ", <cookie_name>=".
+    """
+    KNOWN = (
+        "NetflixId", "SecureNetflixId", "profilesSessionId",
+        "nfvdid", "OptanonConsent", "flwssn", "gsid",
+        "SecureNetflixIdSecure", "memclid", "player_bandwidth",
+        "lcv", "clSharedContext", "chasedSegmentationData",
+        "edgeServerRedirectIndicator", "BUILD_INFO", "startTime",
+        "JSESSIONID", "ndbc", "pas", "hasSeenCACOptIn", "cookie",
+        "CONSENT", "v1st", "v1ss", "v1js", "v2st", "v2ss", "v2js",
+    )
+    out = []
+    s = raw
+    n = len(s)
+    i = 0
+    while i < n:
+        # Bỏ qua ", " đầu tiên nếu có
+        if s[i:i+2] == ", ":
+            i += 2
+        # Tìm tên cookie
+        start = i
+        # Tìm dấu "=" đầu tiên
+        eq = s.find("=", i)
+        if eq == -1:
+            # Không còn cookie nào
+            tail = s[start:].strip().lstrip(",").strip()
+            if tail:
+                out.append(tail)
+            break
+        # Tên là phần từ start đến eq
+        name = s[start:eq].strip()
+        # Check xem name có phải cookie name thật không
+        # Tên cookie hợp lệ: không có dấu phẩy/khoảng trắng bên trong
+        if not name or any(c in name for c in " ,;\"'"):
+            # Không phải đầu cookie, skip 1 char
+            i = start + 1
+            continue
+        # Tìm kết thúc cookie: ';' hoặc ', ' trước tên cookie tiếp theo
+        j = eq + 1
+        end = n
+        while j < n:
+            if s[j] == ";":
+                end = j
+                break
+            # Nếu gặp ", " mà phía sau là tên cookie thật
+            if s[j:j+2] == ", ":
+                # Tên cookie tiếp theo?
+                rest = s[j+2:]
+                next_eq = rest.find("=")
+                if next_eq > 0:
+                    next_name = rest[:next_eq].strip()
+                    if next_name and all(c not in next_name for c in " ,;\"'"):
+                        # OK, đây là boundary giữa 2 cookie
+                        end = j
+                        break
+            j += 1
+        cookie_str = s[start:end].strip()
+        if cookie_str:
+            out.append(cookie_str)
+        i = end
+    return out
+
+
+def _escape_expires_comma(cookie_str: str) -> str:
+    """
+    SimpleCookie không chấp nhận dấu phẩy trong Expires. Tạm thời thay ", " → ",,"
+    trong phần Expires, SimpleCookie sẽ parse thành 1 token dài (chấp nhận được,
+    vì client chỉ cần tên cookie, không cần expires chính xác).
+    """
+    m = re.search(r"(expires=[^;]+)", cookie_str, re.IGNORECASE)
+    if not m:
+        return cookie_str
+    expires_part = m.group(1)
+    fixed = expires_part.replace(", ", ",,")
+    return cookie_str.replace(expires_part, fixed)
