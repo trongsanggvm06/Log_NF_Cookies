@@ -77,9 +77,8 @@ function buildCard(data, index = null) {
     card.dataset.copyCount = "0";
     card.dataset.copyLimit = String(COPY_LIMIT);
     const indexBadge = index !== null ? `<span class="badge badge-index">#${index}</span>` : "";
-    // 2 link: PC = netflix.com/?nftoken= ; Mobile = netflix.com/unsupported?nftoken= (đường app KHÔNG cướp → né NSES-404 + không nhảy app-login)
-    const pcUrl = data.pc || data.url || data.mobile;
-    const mobileUrl = data.mobile || data.pc || data.url;
+    // 1 link duy nhất cho mọi thiết bị = netflix.com/?nftoken= (giống hệt neogkey)
+    const loginUrl = data.pc || data.url || data.mobile;
     card.innerHTML = `
       <div class="result-header">
         ${indexBadge}
@@ -88,15 +87,9 @@ function buildCard(data, index = null) {
       </div>
 
       <div class="link-row">
-        <span class="link-label">💻 Link PC</span>
-        <a class="link-url" href="${pcUrl}" target="_blank" title="${pcUrl}">${pcUrl}</a>
-        <button class="btn btn-sm btn-copy" data-copy-text="${pcUrl}" onclick="copyWithQuota(this)">Copy</button>
-      </div>
-
-      <div class="link-row">
-        <span class="link-label">📱 Link Điện thoại</span>
-        <a class="link-url" href="${mobileUrl}" target="_blank" title="${mobileUrl}">${mobileUrl}</a>
-        <button class="btn btn-sm btn-copy" data-copy-text="${mobileUrl}" onclick="copyWithQuota(this)">Copy</button>
+        <span class="link-label">🔗 Link đăng nhập</span>
+        <a class="link-url" href="${loginUrl}" target="_blank" title="${loginUrl}">${loginUrl}</a>
+        <button class="btn btn-sm btn-copy" data-copy-text="${loginUrl}" onclick="copyWithQuota(this)">Copy</button>
         <span class="copy-quota-bar">
           📋 <span class="copy-count">0</span>/${COPY_LIMIT}
         </span>
@@ -105,15 +98,19 @@ function buildCard(data, index = null) {
       <div class="usage-grid">
         <div class="usage-item">
           <div class="usage-icon">💻</div>
-          <div class="usage-title">PC/Laptop: gửi <b>Link PC</b> → mở trực tiếp</div>
+          <div class="usage-title"><b>PC/Laptop:</b> mở link trực tiếp → vào Netflix</div>
         </div>
         <div class="usage-item">
-          <div class="usage-icon">📱</div>
-          <div class="usage-title">iOS + Android: gửi <b>Link Điện thoại</b> → dán vào Chrome/Safari</div>
+          <div class="usage-icon">🤖</div>
+          <div class="usage-title"><b>Android:</b> dán link vào Chrome → bấm <b>"Open App"</b> → trong app bấm <b>"Continue"</b> → đăng nhập</div>
+        </div>
+        <div class="usage-item">
+          <div class="usage-icon">🍎</div>
+          <div class="usage-title"><b>iPhone/iPad:</b> Như Android</div>
         </div>
       </div>
 
-      <div class="expiry-row">⏰ Hết hạn: <span>${data.expiry}</span></div>
+      <div class="expiry-row" style="color:#ffb84d;">⚠️ GỬI NGAY — token sống ~59 phút. Khách mở càng sớm càng tốt (token cũ → NSES-404). Hết hạn: <span>${data.expiry}</span></div>
     `;
   } else {
     card.className = "result-card error-card";

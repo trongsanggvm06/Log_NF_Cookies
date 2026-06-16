@@ -7,15 +7,16 @@ APP_TITLE = "Netflix Login Link Generator"
 APP_SUBTITLE = "Chuyển đổi Cookie Netflix thành Link Đăng Nhập"
 
 # --- URL đăng nhập ---
-# PC  : netflix.com/?nftoken=  → desktop redeem → /browse (login web).
-# MOBILE: netflix.com/unsupported?nftoken=  → đường /unsupported app Netflix KHÔNG claim
-#   (iOS AASA exclude; Android tương tự) → tap từ chat KHÔNG bị app cướp → ở lại trình duyệt →
-#   token redeem (login web). Tránh được CẢ 3 lỗi: NSES-404 (/oAuth2Login), nhảy màn app-login,
-#   và kẹt màn login. Lưu ý: app NATIVE không login được bằng nftoken (token là của WEB);
-#   muốn XEM trên điện thoại, khách bật "Request Desktop Site".
+# 1 LINK DUY NHẤT cho mọi thiết bị = netflix.com/?nftoken=  (GIỐNG HỆT neogkey.com — đã verify
+#   bằng cách decode link thật của họ: link Android của họ cũng là /?nftoken=, KHÔNG phải /unsupported).
+# Token nftoken là DEVICE-AGNOSTIC (đã thực nghiệm: mọi device param đều ra token y hệt cho 1 account).
+# LUỒNG ANDROID (theo neogkey, app native login ĐƯỢC):
+#   paste link vào Chrome → trang Netflix → bấm "Open App" → trong app bấm "Continue" → login app.
+#   Đây là OAuth handoff; CHẠY khi token còn tươi (<59') + account không bị household-lock.
+#   NSES-404 (error=NoAuthSession) xảy ra khi token hết hạn/đã dùng/account lỗi.
 LOGIN_BASE = "https://netflix.com/?nftoken="
 PC_LOGIN_BASE = LOGIN_BASE
-MOBILE_LOGIN_BASE = "https://netflix.com/unsupported?nftoken="
+MOBILE_LOGIN_BASE = LOGIN_BASE
 
 # ─── ENDPOINT TUỲ CHỈNH ────────────────────────────────────────────────────
 # Nếu bạn biết đúng endpoint Netflix, điền vào đây.

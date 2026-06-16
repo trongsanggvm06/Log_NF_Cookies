@@ -356,11 +356,10 @@ def _fmt_expiry(expiry) -> str:
 
 
 def _build_result(token: str, expiry, method_name: str) -> dict:
-    pc_url = LOGIN_BASE + token              # PC: netflix.com/?nftoken= (desktop redeem → /browse)
-    mobile_url = MOBILE_LOGIN_BASE + token   # Mobile: netflix.com/unsupported?nftoken=
-    # /unsupported là path app Netflix KHÔNG claim (iOS AASA exclude; Android tương tự) →
-    # tap từ chat KHÔNG bị app cướp → ở lại trình duyệt → token redeem (login web) →
-    # KHÔNG NSES-404, KHÔNG nhảy màn app-login. Trên netflix.com nên KHÔNG dính Safe Browsing.
+    # 1 link duy nhất cho mọi thiết bị = netflix.com/?nftoken= (giống hệt neogkey).
+    pc_url = LOGIN_BASE + token
+    mobile_url = MOBILE_LOGIN_BASE + token   # = pc_url (cùng LOGIN_BASE)
+    # Android: paste link → "Open App" → "Continue" trong app → login (OAuth handoff, chạy khi token tươi).
     return {
         "ok": True,
         "token": token,
