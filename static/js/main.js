@@ -35,73 +35,47 @@ async function copyText(text, btn) {
   }
 }
 
-// ===== BUILD RESULT CARD (2 link: Android trang trung gian + PC/Web/iPhone HTTPS) =====
+// ===== BUILD RESULT CARD (2 link giống bot gốc: PC/Web/iPhone/iPad = /?nftoken=, Android = /unsupported?nftoken=) =====
 function buildCard(data, index = null) {
   const card = document.createElement("div");
 
   if (data.ok) {
     card.className = "result-card success";
     const indexBadge = index !== null ? `<span class="badge badge-index">#${index}</span>` : "";
-    const url = data.url || data.pc || data.mobile;
+    // ── GIỐNG HỆT Netflix-Cookie-Checker-main/bot.py:1022-1023 ──
+    //   pc_link     = https://netflix.com/?nftoken=<token>            → PC / Web / iPhone / iPad
+    //   mobile_link = https://netflix.com/unsupported?nftoken=<token> → Android
+    const pcUrl = data.pc || data.url || data.mobile;       // pc_link bot gốc
+    const mobileUrl = data.mobile || data.url || data.pc;   // mobile_link bot gốc
 
-    const hasAndroidLinks = data.android_intermediary || data.android_universal;
-
-    let linksHtml = "";
-    if (hasAndroidLinks) {
-      const intermediaryUrl = data.android_intermediary || "";
-      const webUrl = data.android_universal || url;
-
-      linksHtml = `
-        <div class="link-platform ok">
-          <div class="link-platform-header">
-            <span class="link-platform-icon">🤖</span>
-            <span class="link-platform-name">Android</span>
-            <span class="badge badge-ok">Lỗi thì bảo khách Xoá đi tải lại App</span>
-          </div>
-          <div class="link-row">
-            <span class="link-label">HTTPS</span>
-            <a class="link-url" href="${intermediaryUrl}" target="_blank" title="${intermediaryUrl}">${intermediaryUrl.length > 80 ? intermediaryUrl.slice(0, 80) + "…" : intermediaryUrl}</a>
-            <button class="btn btn-sm btn-copy" data-copy-text="${intermediaryUrl}">Copy</button>
-          </div>
-          <div class="link-hint">📋 <b>Gửi link này qua SMS / Telegram / Email</b>. Khi người nhận bấm vào → server mở trang có nút "Mở Netflix App" → bấm nút → app Netflix tự login.</div>
+    const linksHtml = `
+      <div class="link-platform">
+        <div class="link-platform-header">
+          <span class="link-platform-icon">💻</span>
+          <span class="link-platform-name">PC / Web / iPhone / iPad</span>
+          <span class="badge badge-ok">OK</span>
         </div>
-        <div class="link-platform">
-          <div class="link-platform-header">
-            <span class="link-platform-icon">💻</span>
-            <span class="link-platform-name">PC / Web / iPhone</span>
-            <span class="badge badge-ok">OK</span>
-          </div>
-          <div class="link-row">
-            <span class="link-label">https</span>
-            <a class="link-url" href="${webUrl}" target="_blank" title="${webUrl}">${webUrl}</a>
-            <button class="btn btn-sm btn-copy" data-copy-text="${webUrl}">Copy</button>
-          </div>
-          <div class="link-hint">📋 PC: paste vào browser. iPhone: paste vào Safari → tự mở Netflix app.</div>
-        </div>
-      `;
-    } else {
-      linksHtml = `
         <div class="link-row">
-          <span class="link-label">🔗 Link</span>
-          <a class="link-url" href="${url}" target="_blank" title="${url}">${url}</a>
-          <button class="btn btn-sm btn-copy" data-copy-text="${url}">Copy</button>
+          <span class="link-label">https</span>
+          <a class="link-url" href="${pcUrl}" target="_blank" title="${pcUrl}">${pcUrl}</a>
+          <button class="btn btn-sm btn-copy" data-copy-text="${pcUrl}">Copy</button>
         </div>
-        <div class="usage-grid">
-          <div class="usage-item">
-            <div class="usage-icon">💻</div>
-            <div class="usage-title"><b>PC/Laptop:</b> mở link trực tiếp → vào Netflix</div>
-          </div>
-          <div class="usage-item">
-            <div class="usage-icon">🤖</div>
-            <div class="usage-title"><b>Android:</b> dán link vào Chrome → bấm <b>"Open App"</b> → "Continue"</div>
-          </div>
-          <div class="usage-item">
-            <div class="usage-icon">🍎</div>
-            <div class="usage-title"><b>iPhone/iPad:</b> dán link vào Safari → tự mở app Netflix</div>
-          </div>
+        <div class="link-hint">📋 PC/Laptop: dán vào trình duyệt → vào thẳng Netflix. iPhone/iPad: dán vào Safari → tự mở app Netflix.</div>
+      </div>
+      <div class="link-platform">
+        <div class="link-platform-header">
+          <span class="link-platform-icon">🤖</span>
+          <span class="link-platform-name">Android</span>
+          <span class="badge badge-ok">OK</span>
         </div>
-      `;
-    }
+        <div class="link-row">
+          <span class="link-label">https</span>
+          <a class="link-url" href="${mobileUrl}" target="_blank" title="${mobileUrl}">${mobileUrl}</a>
+          <button class="btn btn-sm btn-copy" data-copy-text="${mobileUrl}">Copy</button>
+        </div>
+        <div class="link-hint">📋 Android: dán link vào Chrome → bấm <b>"Open App"</b> → "Continue" → app Netflix tự login.</div>
+      </div>
+    `;
 
     card.innerHTML = `
       <div class="result-header">

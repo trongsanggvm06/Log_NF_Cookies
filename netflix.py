@@ -458,16 +458,21 @@ def _build_result(token: str, expiry, method_name: str, platform: str = "laptop"
         ";end"
     )
 
+    # ── GIỐNG HỆT Netflix-Cookie-Checker-main/bot.py:1022-1023 ──
+    #   PC / Web / iPhone / iPad  → https://netflix.com/?nftoken=<token>   (pc_link)
+    #   Android                   → https://netflix.com/unsupported?nftoken=<token>  (mobile_link)
+    pc_url = LOGIN_BASE + token              # = short_token_url, no-www, pc_link bot gốc
+    mobile_url = MOBILE_LOGIN_BASE + token   # /unsupported?nftoken=, mobile_link bot gốc
     return {
         "ok": True,
         "token": token,
-        "url": full_token_url,                            # HTTPS Universal Link (iOS native, Android web)
-        "pc": full_token_url,
-        "mobile": full_token_url,
-        "android_universal": full_token_url,              # HTTPS Universal Link / App Link
-        "android_intermediary": intermediary_url,         # ★ Trang HTML trung gian (RECOMMENDED cho Android)
-        "android_intent": intent_url,                     # Raw intent:// (cần user gesture)
-        "android_short": short_token_url,                 # HTTPS ngắn, không có www.
+        "url": pc_url,                                    # PC/Web/iPhone/iPad (reference pc_link)
+        "pc": pc_url,
+        "mobile": mobile_url,                             # Android (reference mobile_link)
+        "android_universal": full_token_url,              # (giữ) HTTPS Universal Link / App Link
+        "android_intermediary": intermediary_url,         # (giữ) Trang HTML trung gian
+        "android_intent": intent_url,                     # (giữ) Raw intent://
+        "android_short": short_token_url,
         "expiry": _fmt_expiry(expiry),
         "build_id": method_name,
         "strategy": method_name,
