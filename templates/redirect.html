@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Đăng nhập Netflix</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #141414;
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .card {
+    max-width: 480px;
+    width: 100%;
+    background: #1f1f1f;
+    border-radius: 12px;
+    padding: 32px 24px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    text-align: center;
+  }
+  .logo { font-size: 48px; margin-bottom: 16px; }
+  h1 { font-size: 22px; margin-bottom: 8px; color: #e50914; }
+  .subtitle { color: #aaa; font-size: 14px; margin-bottom: 24px; }
+
+  .status {
+    padding: 16px;
+    background: #2a2a2a;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 14px;
+  }
+  .spinner {
+    display: inline-block;
+    width: 20px; height: 20px;
+    border: 3px solid #555;
+    border-top-color: #e50914;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .btn {
+    display: block;
+    width: 100%;
+    padding: 14px 20px;
+    margin: 10px 0;
+    background: #e50914;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    text-align: center;
+  }
+  .btn:hover { background: #f40612; }
+  .btn-secondary {
+    background: #2a2a2a;
+    color: #fff;
+    border: 1px solid #444;
+  }
+  .btn-secondary:hover { background: #353535; }
+
+  .help {
+    margin-top: 20px;
+    font-size: 12px;
+    color: #888;
+    line-height: 1.6;
+  }
+  .help a { color: #4fc3f7; text-decoration: none; }
+  .help a:hover { text-decoration: underline; }
+
+  .error { color: #ff5252; }
+  .success { color: #4caf50; }
+
+  #manual-section { display: none; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">🎬</div>
+    <h1>Đăng nhập Netflix</h1>
+    <p class="subtitle">Đang mở app Netflix trên thiết bị của bạn...</p>
+
+    <div id="auto-status" class="status">
+      <span class="spinner"></span>
+      <span id="status-text">Đang chuẩn bị...</span>
+    </div>
+
+    <!-- Nút manual để user bấm nếu auto-redirect không tự kích hoạt -->
+    <div id="manual-section">
+      <a id="btn-android" class="btn" href="#" style="display:none;">
+        📱 Mở Netflix App
+      </a>
+      <a id="btn-web" class="btn btn-secondary" href="#" style="display:none;">
+        🌐 Mở trên trình duyệt web
+      </a>
+    </div>
+
+    <div class="help">
+      <p><b>Không tự mở app?</b> Bấm nút "Mở Netflix App" ở trên.</p>
+      <p style="margin-top:8px;">Link này an toàn và chỉ dùng 1 lần. Hết hạn sau <span id="expiry-text">59 phút</span>.</p>
+    </div>
+  </div>
+
+<script>
+(function() {
+  // Token + URL từ server inject
+  const NFTOKEN = {{ nftoken|tojson }};
+  const NETFLIX_HTTPS = "https://www.netflix.com/?nftoken=" + NFTOKEN;
+  const EXPIRY_MIN = {{ expiry_min|tojson }};
+  const ANDROID_PKG = "com.netflix.mediaclient";
+
+  // Intent URL: Chrome sẽ parse và mở com.netflix.mediaclient với URL https
+  const FALLBACK_ENCODED = encodeURIComponent(NETFLIX_HTTPS);
+  const INTENT_URL = "intent://www.netflix.com/?nftoken=" + NFTOKEN +
+    "#Intent;scheme=https;package=" + ANDROID_PKG +
+    ";S.browser_fallback_url=" + FALLBACK_ENCODED +
+    ";end";
+
+  // Detect Android (nơi intent:// hoạt động)
+  const userAgent = navigator.userAgent || "";
+  const isAndroid = /Android/i.test(userAgent);
+  const isiOS = /iPhone|iPad|iPod/i.test(userAgent);
+  const isMobile = isAndroid || isiOS || /Mobile/i.test(userAgent);
+
+  const statusEl = document.getElementById("status-text");
+  const autoStatus = document.getElementById("auto-status");
+  const manualSection = document.getElementById("manual-section");
+  const btnAndroid = document.getElementById("btn-android");
+  const btnWeb = document.getElementById("btn-web");
+  const expiryText = document.getElementById("expiry-text");
+
+  if (expiryText) expiryText.textContent = EXPIRY_MIN + " phút";
+
+  // ===== iOS: dùng Universal Link trực tiếp =====
+  if (isiOS) {
+    statusEl.innerHTML = "🍎 Đang mở app Netflix trên iOS...";
+    // Safari tự handle Universal Link khi user tap. Vì đây là redirect auto, dùng location.href
+    // với scheme ngắn hơn để Safari hiện banner.
+    setTimeout(() => { window.location.href = NETFLIX_HTTPS; }, 100);
+    showManualFallback();
+    return;
+  }
+
+  // ===== Android: thử auto-redirect sang intent:// =====
+  if (isAndroid) {
+    // Bước 1: thử set iframe ẩn với intent:// (Chrome sẽ bắn intent)
+    // Bước 2: nếu không có gì xảy ra trong 2s, hiện nút manual
+
+    statusEl.innerHTML = "🤖 Đang mở app Netflix...";
+
+    // Cách 1: location.href trực tiếp (Chrome block vì không user gesture)
+    // Cách 2: tạo iframe ẩn (Chrome vẫn block)
+    // Cách 3: window.location.replace (cũng block)
+    // → Chrome chỉ fire intent:// khi user GESTURE (click)
+    // → Vì vậy, BUỘC phải có nút bấm. Nhưng trick: dùng meta-refresh fallback.
+
+    // Show manual button ngay (Chrome sẽ fire intent khi user bấm)
+    showManualButton();
+
+    // Auto-fallback: nếu user không bấm sau 8s, redirect sang web
+    let redirected = false;
+    let manualBtn = document.getElementById("btn-android");
+
+    // Dùng timer: nếu user vẫn ở trang sau 8s nghĩa là app không mở được → fallback web
+    setTimeout(() => {
+      if (!redirected && document.visibilityState === "visible") {
+        statusEl.innerHTML = "⚠️ Không tìm thấy app Netflix. Chuyển sang web...";
+        window.location.href = NETFLIX_HTTPS;
+      }
+    }, 8000);
+
+    // Nếu user click manual button → Chrome fire intent
+    if (manualBtn) {
+      manualBtn.addEventListener("click", function(e) {
+        e.preventDefault();
+        redirected = true;
+        statusEl.innerHTML = "🚀 Đang mở app Netflix...";
+        // Set href rồi simulate click
+        manualBtn.href = INTENT_URL;
+        window.location.href = INTENT_URL;
+        // Backup: nếu intent không fire, fallback HTTPS sau 3s
+        setTimeout(() => {
+          if (document.visibilityState === "visible") {
+            window.location.href = NETFLIX_HTTPS;
+          }
+        }, 3000);
+      });
+    }
+
+    return;
+  }
+
+  // ===== PC/Web: redirect thẳng HTTPS =====
+  statusEl.innerHTML = "💻 Đang chuyển tới Netflix...";
+  setTimeout(() => { window.location.href = NETFLIX_HTTPS; }, 200);
+  showManualFallback();
+
+  function showManualButton() {
+    manualSection.style.display = "block";
+    btnAndroid.style.display = "block";
+    btnAndroid.href = INTENT_URL;
+    btnAndroid.textContent = "📱 Mở Netflix App (khuyên)";
+    btnWeb.style.display = "block";
+    btnWeb.href = NETFLIX_HTTPS;
+    btnWeb.textContent = "🌐 Mở trên web";
+    autoStatus.innerHTML = "👆 <b>Bấm nút bên dưới để mở app Netflix</b>";
+  }
+
+  function showManualFallback() {
+    manualSection.style.display = "block";
+    btnWeb.style.display = "block";
+    btnWeb.href = NETFLIX_HTTPS;
+    btnWeb.textContent = "🌐 Tiếp tục trên web";
+  }
+})();
+</script>
+</body>
+</html>

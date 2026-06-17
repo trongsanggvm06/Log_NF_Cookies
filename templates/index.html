@@ -9,13 +9,11 @@
 <body>
   <div class="container">
 
-    <!-- HEADER -->
     <header>
       <div class="logo">N<span>etflix</span> Link</div>
       <p>{{ subtitle }}</p>
     </header>
 
-    <!-- TABS -->
     <div class="tabs">
       <button class="tab-btn active" data-tab="tab-single">🔑 Đơn lẻ</button>
       <button class="tab-btn" data-tab="tab-batch">📦 Batch</button>
@@ -121,7 +119,6 @@ Hoặc cách dòng:
         <h3>Debug – Thử endpoint tuỳ chỉnh</h3>
         <p class="format-hint" style="margin-bottom:12px;">
           Dùng tab này để tìm endpoint đúng. Dán cookie + URL endpoint muốn thử → xem raw response từ Netflix.
-          <br>Hướng dẫn tìm endpoint: mở DevTools (F12) → Network → đăng nhập Netflix → tìm request có <code>loginWithToken</code> hoặc <code>token</code>.
         </p>
         <form id="debug-form">
           <label style="font-size:.8rem;color:var(--text-muted);display:block;margin-bottom:4px;">Cookie</label>

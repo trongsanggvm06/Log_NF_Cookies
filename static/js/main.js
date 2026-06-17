@@ -18,7 +18,7 @@ async function copyText(text, btn) {
     setTimeout(() => {
       btn.classList.remove("copied");
       btn.textContent = "Copy";
-    }, 1800);
+    }, 1500);
   } catch {
     const ta = document.createElement("textarea");
     ta.value = text;
@@ -28,95 +28,131 @@ async function copyText(text, btn) {
     document.body.removeChild(ta);
     btn.classList.add("copied");
     btn.textContent = "Đã copy!";
-    setTimeout(() => { btn.classList.remove("copied"); btn.textContent = "Copy"; }, 1800);
+    setTimeout(() => {
+      btn.classList.remove("copied");
+      btn.textContent = "Copy";
+    }, 1500);
   }
 }
 
-// ===== COPY VỚI QUOTA (PC + Mobile dùng chung quota, max 4 lần / card) =====
-const COPY_LIMIT = 4;
-
-async function copyWithQuota(btn) {
-  const card = btn.closest(".result-card");
-  if (!card) return;
-
-  const limit = parseInt(card.dataset.copyLimit || COPY_LIMIT, 10);
-  let count = parseInt(card.dataset.copyCount || "0", 10);
-
-  if (count >= limit) return;
-
-  const text = btn.dataset.copyText || "";
-  await copyText(text, btn);
-
-  count += 1;
-  card.dataset.copyCount = String(count);
-
-  const countSpan = card.querySelector(".copy-count");
-  if (countSpan) countSpan.textContent = String(count);
-
-  const bar = card.querySelector(".copy-quota-bar");
-  if (bar) {
-    bar.classList.toggle("quota-warn", count >= limit - 1 && count < limit);
-    bar.classList.toggle("quota-done", count >= limit);
-  }
-
-  if (count >= limit) {
-    card.querySelectorAll(".btn-copy").forEach((b) => {
-      b.disabled = true;
-      b.classList.add("disabled");
-      b.textContent = "Hết lượt";
-    });
-  }
-}
-
-// ===== BUILD RESULT CARD =====
+// ===== BUILD RESULT CARD (2 link: Android trang trung gian + PC/Web/iPhone HTTPS) =====
 function buildCard(data, index = null) {
   const card = document.createElement("div");
 
   if (data.ok) {
     card.className = "result-card success";
-    card.dataset.copyCount = "0";
-    card.dataset.copyLimit = String(COPY_LIMIT);
     const indexBadge = index !== null ? `<span class="badge badge-index">#${index}</span>` : "";
-    // 1 link duy nhất cho mọi thiết bị = netflix.com/?nftoken= (giống hệt neogkey)
-    const loginUrl = data.pc || data.url || data.mobile;
+    const url = data.url || data.pc || data.mobile;
+
+    const hasAndroidLinks = data.android_intermediary || data.android_universal;
+
+    let linksHtml = "";
+    if (hasAndroidLinks) {
+      const intermediaryUrl = data.android_intermediary || "";
+      const webUrl = data.android_universal || url;
+
+      linksHtml = `
+        <div class="link-platform ok">
+          <div class="link-platform-header">
+            <span class="link-platform-icon">🤖</span>
+            <span class="link-platform-name">Android (Trang mở app — link dán được)</span>
+            <span class="badge badge-ok">Khuyên dùng</span>
+          </div>
+          <div class="link-row">
+            <span class="link-label">HTTPS</span>
+            <a class="link-url" href="${intermediaryUrl}" target="_blank" title="${intermediaryUrl}">${intermediaryUrl.length > 80 ? intermediaryUrl.slice(0, 80) + "…" : intermediaryUrl}</a>
+            <button class="btn btn-sm btn-copy" data-copy-text="${intermediaryUrl}">Copy</button>
+          </div>
+          <div class="link-hint">📋 <b>Gửi link này qua SMS / Telegram / Email</b>. Khi người nhận bấm vào → server mở trang có nút "Mở Netflix App" → bấm nút → app Netflix tự login.</div>
+        </div>
+        <div class="link-platform">
+          <div class="link-platform-header">
+            <span class="link-platform-icon">💻</span>
+            <span class="link-platform-name">PC / Web / iPhone</span>
+            <span class="badge badge-ok">OK</span>
+          </div>
+          <div class="link-row">
+            <span class="link-label">https</span>
+            <a class="link-url" href="${webUrl}" target="_blank" title="${webUrl}">${webUrl}</a>
+            <button class="btn btn-sm btn-copy" data-copy-text="${webUrl}">Copy</button>
+          </div>
+          <div class="link-hint">📋 PC: paste vào browser. iPhone: paste vào Safari → tự mở Netflix app.</div>
+        </div>
+      `;
+    } else {
+      linksHtml = `
+        <div class="link-row">
+          <span class="link-label">🔗 Link</span>
+          <a class="link-url" href="${url}" target="_blank" title="${url}">${url}</a>
+          <button class="btn btn-sm btn-copy" data-copy-text="${url}">Copy</button>
+        </div>
+        <div class="usage-grid">
+          <div class="usage-item">
+            <div class="usage-icon">💻</div>
+            <div class="usage-title"><b>PC/Laptop:</b> mở link trực tiếp → vào Netflix</div>
+          </div>
+          <div class="usage-item">
+            <div class="usage-icon">🤖</div>
+            <div class="usage-title"><b>Android:</b> dán link vào Chrome → bấm <b>"Open App"</b> → "Continue"</div>
+          </div>
+          <div class="usage-item">
+            <div class="usage-icon">🍎</div>
+            <div class="usage-title"><b>iPhone/iPad:</b> dán link vào Safari → tự mở app Netflix</div>
+          </div>
+        </div>
+      `;
+    }
+
     card.innerHTML = `
       <div class="result-header">
         ${indexBadge}
         <span class="badge badge-ok">✓ Thành công</span>
-        <span class="result-title">Build: ${data.build_id || "—"}</span>
+        <span class="result-title">Hết hạn: ${data.expiry || "—"}</span>
       </div>
-
-      <div class="link-row">
-        <span class="link-label">🔗 Link đăng nhập</span>
-        <a class="link-url" href="${loginUrl}" target="_blank" title="${loginUrl}">${loginUrl}</a>
-        <button class="btn btn-sm btn-copy" data-copy-text="${loginUrl}" onclick="copyWithQuota(this)">Copy</button>
-        <span class="copy-quota-bar">
-          📋 <span class="copy-count">0</span>/${COPY_LIMIT}
-        </span>
+      ${linksHtml}
+      <div class="expiry-row">
+        <span class="expiry-left">⚠️ Token sống ~59 phút.</span>
+        <span class="copy-counter" data-count="0">Đã copy: <b>0/4</b></span>
       </div>
-
-      <div class="usage-grid">
-        <div class="usage-item">
-          <div class="usage-icon">💻</div>
-          <div class="usage-title"><b>PC/Laptop:</b> mở link trực tiếp → vào Netflix</div>
-        </div>
-        <div class="usage-item">
-          <div class="usage-icon">🤖</div>
-          <div class="usage-title"><b>Android:</b> dán link vào Chrome → bấm <b>"Open App"</b> → trong app bấm <b>"Continue"</b> → đăng nhập</div>
-        </div>
-        <div class="usage-item">
-          <div class="usage-icon">🍎</div>
-          <div class="usage-title"><b>iPhone/iPad:</b> Như Android</div>
-        </div>
-      </div>
-
-      <div class="expiry-row" style="color:#ffb84d;">⚠️ GỬI NGAY — token sống ~59 phút. Khách mở càng sớm càng tốt (token cũ → NSES-404). Hết hạn: <span>${data.expiry}</span></div>
     `;
+
+    // Counter CHUNG cho cả 2 link trong card này. Mỗi lần bấm Copy (bất kỳ link nào)
+    // tăng 1. Đến 4/4 → disable cả 2 nút + hiện "Đổi link bạn ei".
+    const counter = card.querySelector(".copy-counter");
+    const copyBtns = card.querySelectorAll(".btn-copy");
+    const COUNTER_MAX = 4;
+    let count = 0;
+    const updateCounter = () => {
+      if (counter) {
+        counter.setAttribute("data-count", String(count));
+        counter.querySelector("b").textContent = `${count}/${COUNTER_MAX}`;
+        if (count >= COUNTER_MAX) {
+          counter.classList.add("counter-done");
+          counter.innerHTML = `<b>Đổi link bạn ei</b>`;
+        } else if (count === COUNTER_MAX - 1) {
+          counter.classList.add("counter-warn");
+        }
+      }
+      if (count >= COUNTER_MAX) {
+        copyBtns.forEach(b => {
+          b.disabled = true;
+          b.classList.add("copy-disabled");
+        });
+      }
+    };
+    copyBtns.forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (count >= COUNTER_MAX) return;
+        copyText(btn.dataset.copyText, btn);
+        count += 1;
+        updateCounter();
+      });
+    });
   } else {
     card.className = "result-card error-card";
     const indexBadge = index !== null ? `<span class="badge badge-index">#${index}</span>` : "";
     const debugJson = data.debug ? JSON.stringify(data.debug, null, 2) : "";
-    const debugId = `dbg-${Math.random().toString(36).slice(2, 9)}`;
     card.innerHTML = `
       <div class="result-header">
         ${indexBadge}
@@ -126,13 +162,9 @@ function buildCard(data, index = null) {
       ${debugJson ? `
         <details style="margin-top:10px;">
           <summary style="cursor:pointer;color:var(--text-muted);font-size:.8rem;user-select:none;">
-            🔍 Debug log (${data.debug.length} endpoint) — click để mở
+            🔍 Debug log — click để mở
           </summary>
-          <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
-            <button class="btn btn-sm btn-copy" onclick="copyText(document.getElementById('${debugId}').textContent, this)">📋 Copy debug</button>
-            <span style="color:var(--text-muted);font-size:.72rem;">Paste vào chat để tôi phân tích</span>
-          </div>
-          <pre id="${debugId}" style="margin-top:8px;background:var(--card2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-size:.72rem;color:var(--text);overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;">${debugJson.replace(/</g, "&lt;")}</pre>
+          <pre style="margin-top:8px;background:var(--card2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-size:.72rem;color:var(--text);overflow:auto;max-height:300px;white-space:pre-wrap;word-break:break-all;">${debugJson.replace(/</g, "&lt;")}</pre>
         </details>
       ` : ""}
     `;
@@ -169,15 +201,6 @@ debugForm.addEventListener("submit", async (e) => {
     pre.style.cssText = "background:var(--card2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;font-size:.75rem;color:var(--text);overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;";
     pre.textContent = JSON.stringify(data, null, 2);
     debugResult.appendChild(pre);
-
-    // Gợi ý nếu tìm thấy token
-    const str = JSON.stringify(data);
-    if (str.includes("loginToken") || str.includes("nftoken") || str.includes('"token"')) {
-      const hint = document.createElement("div");
-      hint.style.cssText = "margin-top:10px;padding:10px;background:#1a3a1a;border:1px solid var(--success);border-radius:var(--radius);color:var(--success);font-size:.82rem;";
-      hint.textContent = "✅ Response có vẻ chứa token! Hãy copy URL này vào CUSTOM_ENDPOINT trong config.py";
-      debugResult.insertBefore(hint, pre);
-    }
   } catch {
     debugResult.innerHTML = '<div class="result-card error-card"><div class="error-msg">❌ Lỗi kết nối</div></div>';
   } finally {
@@ -205,44 +228,43 @@ function switchToBatchWith(rawCookies) {
 }
 
 singleForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const raw = singleInput.value.trim();
-  if (!raw) return;
+    e.preventDefault();
+    const raw = singleInput.value.trim();
+    if (!raw) return;
 
-  singleBtn.disabled = true;
-  singleSpinner.style.display = "inline-block";
-  singleResults.innerHTML = "";
+    singleBtn.disabled = true;
+    singleSpinner.style.display = "inline-block";
+    singleResults.innerHTML = "";
 
-  try {
-    const resp = await fetch("/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cookies: raw }),
-    });
-    const data = await resp.json();
-    const card = buildCard(data);
+    try {
+        const resp = await fetch("/api/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cookies: raw }),
+        });
+        const data = await resp.json();
+        const card = buildCard(data);
 
-    // Nếu server đề xuất chuyển sang batch → thêm nút auto-switch
-    if (!data.ok && data.suggest_tab === "tab-batch") {
-      const switchBtn = document.createElement("button");
-      switchBtn.className = "btn-retry";
-      switchBtn.style.borderColor = "var(--primary)";
-      switchBtn.style.color = "var(--primary)";
-      switchBtn.textContent = `📦 Chuyển sang tab Batch (${data.count} cookie)`;
-      switchBtn.onclick = () => switchToBatchWith(raw);
-      card.appendChild(switchBtn);
+        if (!data.ok && data.suggest_tab === "tab-batch") {
+            const switchBtn = document.createElement("button");
+            switchBtn.className = "btn-retry";
+            switchBtn.style.borderColor = "var(--primary)";
+            switchBtn.style.color = "var(--primary)";
+            switchBtn.textContent = `📦 Chuyển sang tab Batch (${data.count} cookie)`;
+            switchBtn.onclick = () => switchToBatchWith(raw);
+            card.appendChild(switchBtn);
+        }
+
+        singleResults.appendChild(card);
+    } catch {
+        singleResults.innerHTML = '<div class="result-card error-card"><div class="error-msg">❌ Lỗi kết nối đến server</div></div>';
+    } finally {
+        singleBtn.disabled = false;
+        singleSpinner.style.display = "none";
     }
-
-    singleResults.appendChild(card);
-  } catch {
-    singleResults.innerHTML = '<div class="result-card error-card"><div class="error-msg">❌ Lỗi kết nối đến server</div></div>';
-  } finally {
-    singleBtn.disabled = false;
-    singleSpinner.style.display = "none";
-  }
 });
 
-// ===== BATCH MODE (PROGRESSIVE) =====
+// ===== BATCH MODE (PROGRESSIVE) — dùng /api/generate (1 link) =====
 const batchForm = document.getElementById("batch-form");
 const batchInput = document.getElementById("batch-input");
 const batchBtn = document.getElementById("batch-btn");
@@ -255,7 +277,7 @@ const progressText = document.getElementById("batch-progress-text");
 const progressPercent = document.getElementById("batch-progress-percent");
 const progressFill = document.getElementById("batch-progress-fill");
 
-const THROTTLE_MS = 300;  // delay giữa các request → né rate limit Netflix
+const THROTTLE_MS = 300;
 let cancelRequested = false;
 
 document.getElementById("clear-batch").addEventListener("click", () => {
@@ -394,7 +416,6 @@ batchForm.addEventListener("submit", async (e) => {
   progressWrap.style.display = "block";
   setProgress(0, total);
 
-  // Tạo pending cards trước cho cảm giác instant feedback
   blocks.forEach((_, i) => {
     const card = buildPendingCard(i + 1);
     card.dataset.index = i + 1;
@@ -428,13 +449,11 @@ batchForm.addEventListener("submit", async (e) => {
 
     setProgress(processed, total);
 
-    // Throttle: né rate limit Netflix
     if (i < blocks.length - 1 && !cancelRequested) {
       await sleep(THROTTLE_MS);
     }
   }
 
-  // Cleanup: xoá các pending card còn lại (nếu bị cancel)
   if (cancelRequested) {
     document.querySelectorAll(".result-card.pending").forEach((c) => c.remove());
     progressText.textContent = `Đã dừng — xử lý ${processed}/${total}`;

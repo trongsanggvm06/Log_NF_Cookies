@@ -18,6 +18,7 @@ Ref: github.com/harshitkamboj/Netflix-NFToken-Generator
 """
 import json
 import re
+import time
 import urllib.parse
 from datetime import datetime, timezone
 
@@ -74,6 +75,51 @@ NFTOKEN_HEADERS = {
     "x-netflix.context.locales": "en-US",
     "accept-language": "en-US;q=1",
     "x-netflix.context.os-version": "15.8.5",
+    "x-netflix.request.client.context": '{"appState":"foreground"}',
+    "x-netflix.context.ui-flavor": "argo",
+}
+
+
+# ─── Android FTL endpoint — fallback cho iOS FTL khi token iOS-bound gây NSES-404 trên Android
+# Android client dùng endpoint này với Android-specific ESN. Token Android thường tương thích
+# tốt hơn với Netflix Android app, giảm NSES-404 khi mở link trên Chrome Android.
+# Ref: tham khảo _test_more_endpoints.py (tested 2025).
+ANDROID_NFTOKEN_API_URL = "https://android.prod.ftl.netflix.com/androidui/user/15.48"
+
+# Mỗi lần tạo ESN mới để tránh Netflix blacklist cùng ESN.
+import secrets as _secrets
+import string as _string
+_ANDROID_FTL_ESN = "NFANDROID-01-" + ''.join(_secrets.choice(_string.ascii_uppercase + _string.digits) for _ in range(30))
+
+ANDROID_NFTOKEN_QUERY_PARAMS = {
+    "appVersion": "15.48.1",
+    "config": '{"gamesInTrailersEnabled":"false","isTrailersEvidenceEnabled":"false","cdsMyListSortEnabled":"true","kidsBillboardEnabled":"true","addHorizontalBoxArtToVideoSummariesEnabled":"false","skOverlayTestEnabled":"false","homeFeedTestTVMovieListsEnabled":"false","baselineOnIpadEnabled":"true","trailersVideoIdLoggingFixEnabled":"true","postPlayPreviewsEnabled":"false","bypassContextualAssetsEnabled":"false","roarEnabled":"false","useSeason1AltLabelEnabled":"false","disableCDSSearchPaginationSectionKinds":["searchVideoCarousel"],"cdsSearchHorizontalPaginationEnabled":"true","searchPreQueryGamesEnabled":"true","kidsMyListEnabled":"true","billboardEnabled":"true","useCDSGalleryEnabled":"true","contentWarningEnabled":"true","videosInPopularGamesEnabled":"true","avifFormatEnabled":"false","sharksEnabled":"true"}',
+    "device_type": "NFANDROID-01-",
+    "esn": urllib.parse.quote(_ANDROID_FTL_ESN, safe=""),
+    "languages": "en-US",
+    "locale": "en-US",
+    "path": '["account","token","default"]',
+    "pathFormat": "graph",
+    "progressive": "false",
+    "responseFormat": "json",
+}
+
+ANDROID_NFTOKEN_HEADERS = {
+    "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 14; SM-S908B Build/TP1A.220624.014)",
+    "x-netflix.request.attempt": "1",
+    "x-netflix.request.client.user.guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
+    "x-netflix.context.profile-guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
+    "x-netflix.request.routing": '{"path":"/nq/android/nqandroid/~15.48.0/user","control_tag":"androidui_argo"}',
+    "x-netflix.context.app-version": "15.48.1",
+    "x-netflix.argo.translated": "true",
+    "x-netflix.context.form-factor": "phone",
+    "x-netflix.context.sdk-version": "2012.4",
+    "x-netflix.client.appversion": "15.48.1",
+    "x-netflix.client.type": "argo",
+    "x-netflix.client.ftl.esn": _ANDROID_FTL_ESN,
+    "x-netflix.context.locales": "en-US",
+    "accept-language": "en-US;q=1",
+    "x-netflix.context.os-version": "14",
     "x-netflix.request.client.context": '{"appState":"foreground"}',
     "x-netflix.context.ui-flavor": "argo",
 }
@@ -355,20 +401,77 @@ def _fmt_expiry(expiry) -> str:
         return str(expiry)
 
 
-def _build_result(token: str, expiry, method_name: str) -> dict:
-    # 1 link duy nhất cho mọi thiết bị = netflix.com/?nftoken= (giống hệt neogkey).
-    pc_url = LOGIN_BASE + token
-    mobile_url = MOBILE_LOGIN_BASE + token   # = pc_url (cùng LOGIN_BASE)
-    # Android: paste link → "Open App" → "Continue" trong app → login (OAuth handoff, chạy khi token tươi).
+def _build_result(token: str, expiry, method_name: str, platform: str = "laptop",
+                  base_url: str = "") -> dict:
+    """
+    Build result với nhiều URL format cho từng platform.
+
+    URL formats:
+      - https://www.netflix.com/?nftoken=<token>
+        ↑ HTTPS Universal Link / App Link. iOS Safari tự mở Netflix app qua Universal Links.
+          Trên Android Chrome: mở trang web (nếu user paste vào address bar) HOẶC hiện
+          banner "Open in app" (nếu click từ web khác).
+
+      - <base_url>/r/<token>
+        ↑ TRANG TRUNG GIAN. Khi user mở link HTTPS này, server trả về HTML có JS detect
+          Android và hiện nút "Mở Netflix App" → bấm vào sẽ fire intent:// → Chrome mở
+          com.netflix.mediaclient. Đây là cách ổn định nhất để user mở trên Android
+          (vì Chrome chỉ fire intent:// khi có USER GESTURE — bắt buộc phải có 1 trang
+          trung gian host ở HTTPS domain). Trên iOS: redirect thẳng tới Universal Link.
+          Trên PC: redirect thẳng tới web.
+
+      - intent://www.netflix.com/?nftoken=<token>#Intent;scheme=https;package=com.netflix.mediaclient;...
+        ↑ Raw intent URL. Chỉ hoạt động khi click từ 1 trang web khác trong Chrome
+          (user gesture). Dùng để backup nếu user muốn copy thẳng intent://
+          NHƯNG không paste vào address bar (Chrome sẽ block).
+
+    Trước đây có `netflix://nftoken=...` deep link, nhưng Netflix KHÔNG đăng ký scheme
+    "netflix://" trong Android app (xem tech stack audit: chỉ có intent:https, intent:market)
+    → link đó không trigger gì cả. ĐÃ BỎ.
+    """
+    full_token_url = "https://www.netflix.com/?nftoken=" + token
+    short_token_url = LOGIN_BASE + token  # https://netflix.com/?nftoken=
+
+    # Trang trung gian: user mở link HTTPS này → server trả HTML có nút bấm để mở app.
+    # QUAN TRỌNG: phải URL-encode token trong URL vì token chứa ký tự đặc biệt (+, /).
+    # - Dấu + trong URL không được quote thì server sẽ decode thành SPACE → lỗi 500
+    # - Dấu / cần quote để không bị hiểu là path separator
+    # → dùng quote() với safe="" để encode tất cả ký tự đặc biệt
+    if base_url:
+        base = base_url.rstrip("/")
+        # quote với safe="" để encode cả "/" (để token "a/b" không bị split thành path)
+        encoded_token = urllib.parse.quote(token, safe="")
+        intermediary_url = f"{base}/r/{encoded_token}"
+    else:
+        # Fallback nếu server không truyền base_url
+        encoded_token = urllib.parse.quote(token, safe="")
+        intermediary_url = f"https://example.com/r/{encoded_token}"
+
+    # Android intent:// URL — raw, chỉ work khi click từ 1 trang web khác (user gesture).
+    fallback_encoded = urllib.parse.quote(full_token_url, safe="")
+    intent_url = (
+        "intent://www.netflix.com/?nftoken=" + token +
+        "#Intent"
+        ";scheme=https"
+        ";package=com.netflix.mediaclient"
+        ";S.browser_fallback_url=" + fallback_encoded +
+        ";end"
+    )
+
     return {
         "ok": True,
         "token": token,
-        "url": pc_url,
-        "pc": pc_url,
-        "mobile": mobile_url,
+        "url": full_token_url,                            # HTTPS Universal Link (iOS native, Android web)
+        "pc": full_token_url,
+        "mobile": full_token_url,
+        "android_universal": full_token_url,              # HTTPS Universal Link / App Link
+        "android_intermediary": intermediary_url,         # ★ Trang HTML trung gian (RECOMMENDED cho Android)
+        "android_intent": intent_url,                     # Raw intent:// (cần user gesture)
+        "android_short": short_token_url,                 # HTTPS ngắn, không có www.
         "expiry": _fmt_expiry(expiry),
         "build_id": method_name,
         "strategy": method_name,
+        "platform": platform,
     }
 
 
@@ -388,6 +491,68 @@ def _build_cookie_header(cookies_dict: dict) -> str:
             value = urllib.parse.quote(value, safe="-_.~")
         parts.append(f"{key}={value}")
     return "; ".join(parts)
+
+
+# ─── Cookie refresh qua browser flow ──────────────────────────────────────────
+
+BROWSER_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+}
+
+
+def refresh_cookies(cookies_dict: dict, timeout: int = 20) -> dict:
+    """
+    Refresh Netflix cookies bằng cách simulate browser navigate tới /browse.
+
+    Netflix sẽ Set-Cookie mới với ct/mac/dt mới khi browser thật truy cập.
+    Hàm này tận dụng behavior đó để "tái cấp" session từ cookies cũ (còn sống).
+
+    Args:
+        cookies_dict: dict chứa NetflixId, SecureNetflixId, nfvdid, flwssn (đã decoded).
+        timeout: timeout cho HTTP request.
+
+    Returns:
+        dict cookies mới (URL-decoded) — merge với input cookies, ghi đè nếu trùng.
+        Thêm 'gsid' nếu Netflix trả về.
+    """
+    if not cookies_dict.get("NetflixId"):
+        return cookies_dict
+
+    try:
+        s = requests.Session()
+        s.headers.update(BROWSER_HEADERS)
+        # Set cookies với domain đúng
+        for k, v in cookies_dict.items():
+            if not v:
+                continue
+            is_secure = k in ("SecureNetflixId",)
+            s.cookies.set(k, v, domain='.netflix.com', path='/', secure=is_secure)
+
+        # Navigate tới /browse — Netflix sẽ Set-Cookie mới
+        r = s.get('https://www.netflix.com/browse', allow_redirects=True, timeout=timeout)
+
+        if r.status_code != 200:
+            return {**cookies_dict, "_refresh_error": f"HTTP {r.status_code}"}
+
+        # Lấy cookies mới từ session
+        new_cookies = dict(cookies_dict)  # Copy
+        for c in s.cookies:
+            if c.domain == '.netflix.com' and c.name in COOKIE_KEYS:
+                new_cookies[c.name] = urllib.parse.unquote(c.value)
+
+        # gsid có thể không trong COOKIE_KEYS mặc định, lấy riêng
+        for c in s.cookies:
+            if c.domain == '.netflix.com' and c.name == 'gsid':
+                new_cookies['gsid'] = urllib.parse.unquote(c.value)
+
+        new_cookies['_refreshed'] = True
+        return new_cookies
+
+    except Exception as e:
+        return {**cookies_dict, "_refresh_error": str(e)}
 
 
 # ─── NFToken (port từ bot tele create_nftoken) ────────────────────────────────
@@ -481,35 +646,364 @@ def create_nftoken(cookies_dict: dict, attempts: int = 3) -> tuple:
     return None, last_error, logs
 
 
+def create_nftoken_android(cookies_dict: dict, attempts: int = 3) -> tuple:
+    """
+    Lấy token qua Android FTL endpoint — dùng làm fallback khi iOS FTL token gây NSES-404
+    trên Android app. Token được mint với ESN Android nên Netflix Android app verify tốt hơn.
+
+    Returns: (token_data | None, error | None, logs)
+    """
+    if not cookies_dict.get("NetflixId"):
+        return None, "Thiếu NetflixId", []
+
+    cookie_header = _build_cookie_header(cookies_dict)
+    logs = []
+    last_error = "Android FTL error"
+
+    for attempt in range(1, attempts + 1):
+        log = {"method": f"NFToken androidui/15.48 (try {attempt})",
+               "url": ANDROID_NFTOKEN_API_URL, "status": None, "preview": ""}
+        try:
+            headers = dict(ANDROID_NFTOKEN_HEADERS)
+            headers["Cookie"] = cookie_header
+            resp = requests.get(
+                ANDROID_NFTOKEN_API_URL,
+                params=ANDROID_NFTOKEN_QUERY_PARAMS,
+                headers=headers,
+                timeout=30,
+                verify=False,
+            )
+            log["status"] = resp.status_code
+            log["preview"] = (resp.text or "")[:300]
+            logs.append(log)
+
+            if resp.status_code == 403:
+                last_error = "403 Forbidden"
+                continue
+            if resp.status_code == 429:
+                last_error = "429 Rate Limited"
+                continue
+            if resp.status_code != 200:
+                last_error = f"HTTP {resp.status_code}"
+                continue
+
+            try:
+                data = resp.json()
+            except Exception:
+                data = None
+
+            token = None
+            expires = None
+            if isinstance(data, dict):
+                token_data = (
+                    (((data.get("value") or {}).get("account") or {}).get("token") or {}).get("default")
+                    or {}
+                )
+                token = token_data.get("token")
+                expires = token_data.get("expires")
+            if not token:
+                m = re.search(r'"token"\s*:\s*"([^"]+)"', resp.text or "")
+                if m:
+                    token = m.group(1)
+
+            if token:
+                return {"token": token, "expires": expires}, None, logs
+
+            if isinstance(data, dict) and not (data.get("value") or {}):
+                last_error = "Android FTL: value rỗng — account bị từ chối"
+            else:
+                last_error = "Android FTL: token không có trong response"
+
+        except requests.exceptions.Timeout:
+            last_error = f"Timeout (attempt {attempt}/{attempts})"
+            log["status"] = "ERR"
+            log["preview"] = last_error
+            logs.append(log)
+        except requests.exceptions.RequestException as e:
+            last_error = f"Network error: {e}"
+            log["status"] = "ERR"
+            log["preview"] = str(e)[:200]
+            logs.append(log)
+        except Exception as e:
+            last_error = f"Unexpected error: {e}"
+            log["status"] = "ERR"
+            log["preview"] = str(e)[:200]
+            logs.append(log)
+
+    return None, last_error, logs
+
+
 # ─── Main generation function ────────────────────────────────────────────────
 
-def get_login_links(cookies_dict: dict) -> dict:
+def get_login_links(cookies_dict: dict, auto_refresh: bool = True, base_url: str = "") -> dict:
     """
     Tạo 1 login link dùng được cho cả PC, Android, iOS:
         https://netflix.com/?nftoken=<token>
 
     - PC/Desktop: mở trong trình duyệt → Netflix web set session → auto login.
     - iOS: click/paste vào Safari → Universal Link handoff sang app Netflix → auto login.
-    - Android: click/paste vào Chrome → App Link mở app Netflix → auto login.
-    Token có hiệu lực ~1 giờ, không bị bind IP/region/device.
+    - Android: dùng intermediary URL <base_url>/r/<token> → server trả HTML có nút
+      "Mở Netflix App" → bấm vào sẽ fire intent:// → Chrome mở com.netflix.mediaclient.
+      Token có hiệu lực ~1 giờ, không bị bind IP/region/device.
+
+    Args:
+        cookies_dict: dict chứa NetflixId, SecureNetflixId, nfvdid, flwssn
+        auto_refresh: nếu True (mặc định), tự động refresh cookies qua /browse trước khi
+                     tạo token. Giúp overcome "cookies quá cũ" issue với iOS FTL.
+        base_url: URL gốc của server (vd "http://127.0.0.1:5000" hoặc "https://autologin-nf.onrender.com").
+                  Dùng để build intermediary URL. Nếu rỗng, fallback dùng example.com.
     """
     if not cookies_dict.get("NetflixId"):
         return {"ok": False, "error": "Thiếu cookie: NetflixId"}
 
-    token_data, error, logs = create_nftoken(cookies_dict, attempts=3)
+    debug = []
+
+    if auto_refresh:
+        refreshed = refresh_cookies(cookies_dict)
+        if refreshed.get("_refreshed"):
+            debug.append({
+                "method": "Cookie refresh qua /browse",
+                "old_dt": _extract_dt(cookies_dict.get("SecureNetflixId", "")),
+                "new_dt": _extract_dt(refreshed.get("SecureNetflixId", "")),
+            })
+            cookies_dict = refreshed
+
+    # Try iOS FTL trước (đã proven work trên iOS, có thể work trên Android)
+    token_data, error, logs = create_nftoken(cookies_dict, attempts=2)
+    debug.extend(logs)
+    used_method = "iOS FTL NFToken 15.48 (native)"
+
+    if not token_data:
+        # Fallback: thử Android FTL endpoint (token Android-bound, work tốt hơn trên Android app)
+        debug.append({
+            "method": "iOS FTL failed → trying Android FTL",
+            "reason": error,
+        })
+        token_data, error, logs = create_nftoken_android(cookies_dict, attempts=2)
+        debug.extend(logs)
+        used_method = "Android FTL NFToken 15.48 (fallback)"
 
     if error or not token_data:
         return {
             "ok": False,
             "error": error or "Cookies die (NFToken không cấp token)",
-            "debug": logs,
+            "debug": debug,
         }
 
     token = token_data["token"]
     expiry = token_data.get("expires")
-    method = "iOS FTL NFToken 15.48 (native)"
+    return {**_build_result(token, expiry, used_method, "android", base_url=base_url), "debug": debug}
 
-    return {**_build_result(token, expiry, method), "debug": logs}
+
+def _extract_dt(securenetflixid: str) -> str:
+    """Extract dt (timestamp) từ SecureNetflixId cookie."""
+    if not securenetflixid:
+        return ""
+    m = re.search(r'dt=(\d+)', urllib.parse.unquote(securenetflixid))
+    return m.group(1) if m else ""
+
+
+def get_login_links_multi_platform(cookies_dict: dict, auto_refresh: bool = True, use_browser_refresh: bool = False) -> dict:
+    """
+    Mint 3 token riêng cho từng platform qua MSL: laptop, iphone, android.
+    Mỗi token có size/structure khác nhau (theo phân tích 3 link neogkey thật).
+
+    Args:
+        cookies_dict: dict chứa NetflixId, SecureNetflixId, nfvdid, flwssn
+        auto_refresh: nếu True (mặc định), tự động refresh cookies qua /browse trước khi
+                     tạo token. Giúp overcome "The cookies are bad" error từ MSL server.
+        use_browser_refresh: nếu True, dùng Chrome thật (Selenium + pychrome) để refresh
+                     cookies. Mạnh hơn nhiều so với HTTP refresh vì Netflix tự verify session
+                     qua browser. CẦN pychrome installed.
+
+    Returns dict có 3 link: pc_url, iphone_url, android_url + expiry + per-platform status.
+    """
+    if not cookies_dict.get("NetflixId"):
+        return {"ok": False, "error": "Thiếu cookie: NetflixId"}
+
+    debug = []
+
+    # 0) Auto-refresh cookies qua Chrome thật (nếu được yêu cầu)
+    if use_browser_refresh:
+        try:
+            from browser_refresh import refresh_cookies_via_browser
+            print("[*] Refreshing cookies via browser...")
+            refreshed, err = refresh_cookies_via_browser(cookies_dict, timeout=20)
+            if refreshed and refreshed.get('NetflixId'):
+                # Validate refresh
+                import re as _re
+                old_ct = _re.search(r'ct=([^&]+)', urllib.parse.unquote(cookies_dict.get('NetflixId', '')))
+                new_ct = _re.search(r'ct=([^&]+)', refreshed['NetflixId'])
+                if old_ct and new_ct and old_ct.group(1) != new_ct.group(1):
+                    debug.append({
+                        "method": "Browser refresh (Chrome thật) - CT REFRESHED",
+                        "old_dt": _extract_dt(cookies_dict.get("SecureNetflixId", "")),
+                        "new_dt": _extract_dt(refreshed.get("SecureNetflixId", "")),
+                        "old_ct_len": len(old_ct.group(1)),
+                        "new_ct_len": len(new_ct.group(1)),
+                    })
+                    cookies_dict = refreshed
+                    print(f"[+] Cookies refreshed! new ct len: {len(new_ct.group(1))}")
+                else:
+                    debug.append({
+                        "method": "Browser refresh (Chrome thật) - CT NOT REFRESHED",
+                        "warning": err or "Netflix có thể đã reject cookies cũ",
+                    })
+                    print(f"[!] Browser refresh không thay đổi CT: {err}")
+            else:
+                debug.append({
+                    "method": "Browser refresh FAILED",
+                    "error": err,
+                })
+                print(f"[!] Browser refresh failed: {err}")
+        except ImportError:
+            debug.append({"method": "Browser refresh", "error": "pychrome not installed"})
+            print("[!] pychrome not installed, skip browser refresh")
+        except Exception as e:
+            debug.append({"method": "Browser refresh exception", "error": str(e)})
+            print(f"[!] Browser refresh exception: {e}")
+
+    # 1) Auto-refresh cookies qua HTTP (nếu chưa browser-refresh)
+    elif auto_refresh:
+        refreshed = refresh_cookies(cookies_dict)
+        if refreshed.get("_refreshed"):
+            debug.append({
+                "method": "Cookie refresh qua /browse (HTTP)",
+                "old_dt": _extract_dt(cookies_dict.get("SecureNetflixId", "")),
+                "new_dt": _extract_dt(refreshed.get("SecureNetflixId", "")),
+            })
+            cookies_dict = {k: v for k, v in refreshed.items() if not k.startswith("_")}
+
+    # 1) Mint qua iOS FTL (token "nhẹ") - fallback nếu MSL fail
+    fallback_data, fallback_error, logs = create_nftoken(cookies_dict, attempts=2)
+    debug.extend(logs)
+
+    # 2) Thử mint qua MSL cho 3 platform
+    from msl_client import MslClient
+    import logging
+    logging.basicConfig(level=logging.WARNING)
+    log_msl = logging.getLogger("msl")
+
+    platforms = [
+        ("laptop", "PC / Laptop (browser)"),
+        ("iphone", "iPhone / iPad (iOS app)"),
+        ("android", "Android (Android app)"),
+    ]
+
+    result = {
+        "ok": True,
+        "links": {},  # {platform: {ok, url, error, method}}
+        "debug": debug,
+    }
+
+    # Tạo 1 MSL client duy nhất (chia sẻ session) cho cả 3 platform
+    # Mỗi platform cần ESN riêng → 3 lần mint
+    for platform_key, platform_label in platforms:
+        link_info = {
+            "platform": platform_key,
+            "label": platform_label,
+            "ok": False,
+            "url": None,
+            "token": None,
+            "error": None,
+            "method": None,
+        }
+        try:
+            client = MslClient(cookies_dict, platform=platform_key)
+            if not client.perform_key_handshake():
+                link_info["error"] = "MSL handshake failed"
+                link_info["method"] = "MSL handshake"
+            else:
+                # Request nftoken
+                request_data = {
+                    'version': 2,
+                    'url': '/account/token',
+                    'id': __import__('random').randint(1, 10**15),
+                    'esn': client.esn,
+                    'languages': ['en-US'],
+                    'uiVersion': 'shakti-v4bf615c3',
+                    'clientVersion': '6.0011.511.011',
+                    'params': {'type': 'standard'},
+                }
+                msl_result = client.send_request(request_data)
+                if not msl_result:
+                    link_info["error"] = "MSL request failed (no response)"
+                    link_info["method"] = f"MSL ({platform_key})"
+                elif 'error' in msl_result:
+                    link_info["error"] = msl_result['error']
+                    link_info["method"] = f"MSL ({platform_key})"
+                elif 'data_decoded' in msl_result:
+                    # Parse token data
+                    try:
+                        token_data = __import__('json').loads(
+                            msl_result['data_decoded'].decode('utf-8')
+                        )
+                        # Tìm token trong structure
+                        # Thường: data → value → account → token → default → token
+                        token = None
+                        expires = None
+                        if isinstance(token_data, dict):
+                            td = (((token_data.get("value") or {}).get("account") or {}).get("token") or {}).get("default") or {}
+                            token = td.get("token")
+                            expires = td.get("expires")
+                        if not token:
+                            # Thử các format khác
+                            import re as _re
+                            m = _re.search(r'"token"\s*:\s*"([A-Za-z0-9+/=_-]{50,})"', msl_result['data_decoded'].decode('utf-8', errors='replace'))
+                            if m:
+                                token = m.group(1)
+                        if token:
+                            link_info["ok"] = True
+                            link_info["url"] = LOGIN_BASE + token
+                            link_info["token"] = token
+                            link_info["expires"] = expires
+                            link_info["method"] = f"MSL ({platform_key}, ESN {client.esn[:15]}...)"
+                        else:
+                            link_info["error"] = "No token in MSL response"
+                            link_info["method"] = f"MSL ({platform_key})"
+                            link_info["raw"] = msl_result['data_decoded'].decode('utf-8', errors='replace')[:200]
+                    except Exception as e:
+                        link_info["error"] = f"Parse error: {e}"
+                        link_info["method"] = f"MSL ({platform_key})"
+                else:
+                    link_info["error"] = "Unknown MSL response format"
+                    link_info["method"] = f"MSL ({platform_key})"
+                    link_info["raw"] = str(msl_result)[:200]
+        except Exception as e:
+            link_info["error"] = f"{type(e).__name__}: {e}"
+            link_info["method"] = f"MSL ({platform_key})"
+        result["links"][platform_key] = link_info
+
+    # 3) Nếu TẤT CẢ MSL fail, dùng iOS FTL fallback cho laptop (vẫn tốt hơn không có gì)
+    all_failed = all(not info["ok"] for info in result["links"].values())
+    if all_failed and fallback_data and not fallback_error:
+        result["links"]["laptop"]["ok"] = True
+        result["links"]["laptop"]["url"] = LOGIN_BASE + fallback_data["token"]
+        result["links"]["laptop"]["token"] = fallback_data["token"]
+        result["links"]["laptop"]["method"] = "iOS FTL (fallback cho cả 3 platform)"
+        result["links"]["laptop"]["expires"] = fallback_data.get("expires")
+        result["links"]["laptop"]["error"] = None
+        result["links"]["laptop"]["fallback"] = True
+        result["links"]["laptop"]["fallback_note"] = (
+            "MSL mint thất bại, dùng iOS FTL token làm fallback. "
+            "Token này sẽ hoạt động cho cả 3 platform (giống hệt neogkey link PC)."
+        )
+        # 2 cái còn lại vẫn fail
+        for k in ("iphone", "android"):
+            if not result["links"][k]["ok"]:
+                result["links"][k]["fallback"] = True
+                result["links"][k]["fallback_url"] = result["links"]["laptop"]["url"]
+                result["links"][k]["fallback_note"] = (
+                    f"Dùng cùng link laptop ({result['links']['laptop']['url'][:60]}...). "
+                    "Mở trên thiết bị, paste vào Chrome/Safari → 'Open App' → 'Continue'."
+                )
+
+    # Backward compat
+    if result["links"].get("laptop", {}).get("ok"):
+        result["url"] = result["links"]["laptop"]["url"]
+        result["token"] = result["links"]["laptop"]["token"]
+
+    return result
 
 
 # ─── Debug probe ──────────────────────────────────────────────────────────────

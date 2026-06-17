@@ -150,6 +150,51 @@ textarea::placeholder { color: #555; }
 
 .btn-copy:hover { background: var(--border); color: var(--text); }
 .btn-copy.copied { background: var(--success); color: #000; border-color: var(--success); }
+.btn-copy .copy-count {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.75em;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.btn-copy.copy-disabled {
+  background: var(--card2) !important;
+  color: #777 !important;
+  border-color: var(--border) !important;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-copy.copy-disabled .copy-count { color: #ff8a8a; }
+
+/* ===== Copy counter (góc dưới phải, cùng dòng với expiry) ===== */
+.expiry-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.expiry-row .expiry-left { color: #ffb84d; }
+
+.copy-counter {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  user-select: none;
+}
+.copy-counter b {
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.copy-counter.counter-warn b { color: #ffb84d; }
+.copy-counter.counter-done b { color: #ff5252; }
+.copy-counter.counter-done {
+  color: #ff5252;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
 
 .btn-clear {
   background: transparent;
@@ -267,6 +312,70 @@ textarea::placeholder { color: #555; }
   background: rgba(79, 195, 247, 0.1);
   border-radius: var(--radius);
   border-left: 3px solid #4fc3f7;
+}
+
+.android-help {
+  margin-top: 10px;
+  background: rgba(255, 184, 77, 0.05);
+  border: 1px solid rgba(255, 184, 77, 0.3);
+  border-radius: var(--radius);
+  padding: 0;
+}
+
+.android-help summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  color: #ffb84d;
+  font-size: 0.85rem;
+  font-weight: 600;
+  user-select: none;
+  list-style: none;
+}
+
+.android-help summary::-webkit-details-marker { display: none; }
+.android-help summary::before {
+  content: "▶";
+  display: inline-block;
+  margin-right: 8px;
+  transition: transform 0.2s;
+  font-size: 0.7rem;
+}
+.android-help[open] summary::before { transform: rotate(90deg); }
+
+.android-help[open] summary {
+  border-bottom: 1px solid rgba(255, 184, 77, 0.2);
+  padding-bottom: 10px;
+  margin-bottom: 0;
+}
+
+.android-help .help-content {
+  padding: 8px 14px 14px;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.android-help .help-content ol,
+.android-help .help-content ul {
+  margin: 6px 0 10px 0;
+  padding-left: 22px;
+}
+
+.android-help .help-content li {
+  margin: 4px 0;
+}
+
+.android-help .help-content code {
+  background: var(--card2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.85em;
+  color: #ffd700;
+  word-break: break-all;
+}
+
+.android-help .help-content b {
+  color: #4fc3f7;
 }
 
 .usage-grid {
@@ -425,6 +534,103 @@ textarea::placeholder { color: #555; }
 }
 
 .btn-retry:hover { border-color: var(--primary); color: var(--primary); }
+
+/* ===== MULTI-LINK CARD (3 platform) ===== */
+.result-card.multi-platform {
+  border-left: 3px solid var(--primary);
+}
+
+.multi-links-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.link-platform {
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  position: relative;
+}
+
+.link-platform.ok {
+  border-left: 3px solid var(--success);
+}
+
+.link-platform.fail {
+  border-left: 3px solid var(--error);
+  opacity: 0.85;
+}
+
+.link-platform-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.link-platform-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.link-platform-name {
+  flex: 1;
+  color: var(--text);
+}
+
+.badge-warn {
+  background: #b87a00;
+  color: #000;
+}
+
+.link-error {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: var(--error);
+  background: rgba(232, 124, 3, 0.1);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border-left: 2px solid var(--error);
+}
+
+.link-note {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #ffb84d;
+  background: rgba(255, 184, 77, 0.08);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border-left: 2px solid #ffb84d;
+  line-height: 1.5;
+}
+
+.link-method {
+  margin-top: 4px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: 'Consolas', monospace;
+}
+
+.link-hint {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  color: #4fc3f7;
+  background: rgba(79, 195, 247, 0.08);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border-left: 2px solid #4fc3f7;
+  line-height: 1.5;
+}
+
+@media (max-width: 540px) {
+  .link-platform-header { font-size: 0.85rem; }
+  .link-platform { padding: 10px; }
+}
 
 /* Pending card (đang xử lý) */
 .result-card.pending {
