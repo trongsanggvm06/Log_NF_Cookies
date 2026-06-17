@@ -68,8 +68,13 @@ def go_redirect(token):
     # KHÔNG kích trên redirect) → token redeem NGAY TRONG trình duyệt → /unsupported →
     # khách bấm "Open App" của Netflix → app handoff cùng browser → login.
     # /r/ (domain ta) lo việc thoát WebView; /go lo việc đẩy sang netflix mà không bị app cướp.
+    # QUAN TRỌNG: trỏ /unsupported?nftoken= (KHÔNG phải /?nftoken=). Vì /?nftoken= sẽ qua
+    # chuỗi redirect / → /browse → /unsupported, mà /browse là App Link app CÓ claim → app
+    # cướp /browse giữa chừng → mở app COLD → NSES-404/Google chooser. /unsupported?nftoken=
+    # vẫn redeem token NHƯNG vào thẳng /unsupported (path app KHÔNG claim) → không bị cướp →
+    # dừng ở trang "Open App" đã-login → tap Open App → handoff đúng → login app.
     from flask import redirect
-    return redirect("https://netflix.com/?nftoken=" + token, code=302)
+    return redirect("https://netflix.com/unsupported?nftoken=" + token, code=302)
 
 
 @app.route("/api/generate", methods=["POST"])
