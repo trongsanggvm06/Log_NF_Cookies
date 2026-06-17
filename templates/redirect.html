@@ -85,21 +85,21 @@
 <body>
   <div class="card">
     <div class="logo">🎬</div>
-    <h1>Đăng nhập Netflix</h1>
-    <p class="subtitle">Đang mở Netflix trong trình duyệt để đăng nhập tự động…</p>
+    <h1>Sign in to Netflix</h1>
+    <p class="subtitle">Opening Netflix in your browser to sign you in automatically…</p>
 
-    <button id="btn-go" class="btn" type="button">📱 Mở Netflix</button>
+    <button id="btn-go" class="btn" type="button">📱 Open Netflix</button>
 
     <a id="btn-chrome" class="btn btn-secondary" href="#" style="display:none;">
-      🌐 Mở bằng trình duyệt khác
+      🌐 Open in another browser
     </a>
 
     <div id="status"></div>
 
     <div class="help">
-      <p id="hint">Nếu không tự mở: bấm nút <b>"Mở Netflix"</b> phía trên.</p>
-      <p style="margin-top:6px;">Mẹo: nếu vẫn lỗi, bấm <b>⋮</b> góc phải → <b>"Mở bằng Chrome / trình duyệt"</b>.</p>
-      <p style="margin-top:6px;">Link sống ~<span id="expiry-text">59</span> phút.</p>
+      <p id="hint">If it doesn't open automatically, tap <b>"Open Netflix"</b> above.</p>
+      <p style="margin-top:6px;">Tip: if it still fails, tap <b>⋮</b> (top-right) → <b>"Open in Chrome / browser"</b>.</p>
+      <p style="margin-top:6px;">This link is valid for ~<span id="expiry-text">59</span> minutes.</p>
     </div>
   </div>
 
@@ -143,7 +143,7 @@
 
   function go() {
     if (isAndroid && isWebView) {
-      status.textContent = "Đang chuyển sang trình duyệt…";
+      status.textContent = "Opening in your browser…";
       window.location.href = BREAKOUT;     // thoát WebView → trình duyệt mặc định
     } else {
       window.location.href = GO;           // browser thật / iOS / PC → /go 302 → netflix
