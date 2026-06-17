@@ -41,10 +41,11 @@ def index():
     return render_template("index.html", title=config.APP_TITLE, subtitle=config.APP_SUBTITLE)
 
 
-# Trang trung gian: khi user mở link HTTPS này trên Android, JS sẽ hiện nút
-# "Mở Netflix App" bấm vào sẽ fire intent:// → Chrome mở com.netflix.mediaclient.
-# Trên iOS Safari tự nhận Universal Link → mở app luôn.
-# Trên PC redirect thẳng tới web Netflix.
+# Trang trung gian /r/<token>: MỤC ĐÍCH = thoát WebView app chat (Zalo/Messenger) ra
+# TRÌNH DUYỆT MẶC ĐỊNH của máy, rồi mở netflix.com/?nftoken= ở đó. Vì Netflix app dùng
+# trình duyệt mặc định làm Custom Tab khi handoff — phải redeem token CÙNG browser đó thì
+# cookie mới chung → app login được (nếu redeem trong WebView chat thì cookie không chung
+# → NSES-404). JS trong redirect.html bắn intent:// VIEW (no-package) sang browser mặc định.
 # Dùng <path:token> để capture cả dấu / có trong token (token Netflix chứa cả + và /).
 # Token trong URL phải được URL-encoded (safe="" để giữ nguyên /) — khi browser mở
 # link thì tự decode lại thành token gốc.
