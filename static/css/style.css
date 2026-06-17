@@ -223,9 +223,7 @@ textarea::placeholder { color: #555; }
   background: var(--primary);
   border-color: var(--primary);
   box-shadow: 0 0 10px rgba(229,9,20,.5);
-  animation: cq-pulse 1.2s ease-in-out infinite;
 }
-@keyframes cq-pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
 
 .btn-clear {
   background: transparent;
