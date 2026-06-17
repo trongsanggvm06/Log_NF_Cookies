@@ -61,6 +61,17 @@ def redirect_intermediary(token):
     )
 
 
+@app.route("/go/<path:token>")
+def go_redirect(token):
+    # SERVER 302 sang netflix.com/?nftoken= (no-www). Vì là SERVER redirect nên trình
+    # duyệt KHÔNG hand sang app Netflix (App Link chỉ kích khi click/intent trực tiếp,
+    # KHÔNG kích trên redirect) → token redeem NGAY TRONG trình duyệt → /unsupported →
+    # khách bấm "Open App" của Netflix → app handoff cùng browser → login.
+    # /r/ (domain ta) lo việc thoát WebView; /go lo việc đẩy sang netflix mà không bị app cướp.
+    from flask import redirect
+    return redirect("https://netflix.com/?nftoken=" + token, code=302)
+
+
 @app.route("/api/generate", methods=["POST"])
 def generate():
     body = request.get_json(silent=True) or {}

@@ -113,18 +113,20 @@
   //   chung → app không có session. Nên ở đây phải THOÁT WebView ra trình duyệt thật.
   const NFTOKEN = {{ nftoken|tojson }};
   const EXPIRY_MIN = {{ expiry_min|tojson }};
-  const NF = "https://netflix.com/?nftoken=" + NFTOKEN;       // no-www (www làm Netflix double-encode token)
   const ENC = encodeURIComponent(NFTOKEN);
+  // GO = endpoint TRÊN DOMAIN CỦA TA → server 302 sang netflix (redirect KHÔNG bị app cướp).
+  // Dùng domain ta vì app Netflix là handler mặc định của netflix.com — nếu trỏ thẳng
+  // netflix.com thì Android mở APP cold (chưa redeem) → Google Sign-In → NSES-404.
+  const GO = window.location.origin + "/go/" + ENC;
 
-  // Breakout intent: mở NF trong trình duyệt mặc định (KHÔNG package → browser nhận,
-  // app Netflix KHÔNG claim path "/" nên không bị app cướp). category BROWSABLE bắt buộc.
+  // Breakout intent: mở GO (domain ta) trong TRÌNH DUYỆT MẶC ĐỊNH — thoát WebView app chat.
   const BREAKOUT =
-    "intent://netflix.com/?nftoken=" + ENC +
+    "intent://" + window.location.host + "/go/" + ENC +
     "#Intent" +
     ";scheme=https" +
     ";action=android.intent.action.VIEW" +
     ";category=android.intent.category.BROWSABLE" +
-    ";S.browser_fallback_url=" + encodeURIComponent(NF) +
+    ";S.browser_fallback_url=" + encodeURIComponent(GO) +
     ";end";
 
   const ua = navigator.userAgent || "";
@@ -144,7 +146,7 @@
       status.textContent = "Đang chuyển sang trình duyệt…";
       window.location.href = BREAKOUT;     // thoát WebView → trình duyệt mặc định
     } else {
-      window.location.href = NF;           // đã ở trình duyệt thật / iOS / PC
+      window.location.href = GO;           // browser thật / iOS / PC → /go 302 → netflix
     }
   }
 
