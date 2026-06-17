@@ -55,8 +55,8 @@ function buildCard(data, index = null) {
         <div class="link-platform ok">
           <div class="link-platform-header">
             <span class="link-platform-icon">🤖</span>
-            <span class="link-platform-name">Android (Trang mở app — link dán được)</span>
-            <span class="badge badge-ok">Khuyên dùng</span>
+            <span class="link-platform-name">Android</span>
+            <span class="badge badge-ok">Lỗi thì bảo khách Xoá đi tải lại App</span>
           </div>
           <div class="link-row">
             <span class="link-label">HTTPS</span>
