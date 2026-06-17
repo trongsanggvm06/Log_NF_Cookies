@@ -17,7 +17,7 @@ async function copyText(text, btn) {
     btn.textContent = "Đã copy!";
     setTimeout(() => {
       btn.classList.remove("copied");
-      btn.textContent = "Copy";
+      btn.textContent = "📋 Copy";
     }, 1500);
   } catch {
     const ta = document.createElement("textarea");
@@ -30,7 +30,7 @@ async function copyText(text, btn) {
     btn.textContent = "Đã copy!";
     setTimeout(() => {
       btn.classList.remove("copied");
-      btn.textContent = "Copy";
+      btn.textContent = "📋 Copy";
     }, 1500);
   }
 }
@@ -66,7 +66,7 @@ function buildCard(data, index = null) {
         <div class="link-row">
           <span class="link-label">https</span>
           <a class="link-url" href="${pcUrl}" target="_blank" title="${pcUrl}">${pcUrl}</a>
-          <button class="btn btn-sm btn-copy" data-copy-text="${pcUrl}">Copy</button>
+          <button class="btn btn-sm btn-copy" data-copy-text="${pcUrl}">📋 Copy</button>
         </div>
         <div class="link-hint">📋 PC/Laptop: dán vào trình duyệt → vào thẳng Netflix. iPhone/iPad: dán vào Safari → tự mở app Netflix.</div>
       </div>
@@ -79,9 +79,9 @@ function buildCard(data, index = null) {
         <div class="link-row">
           <span class="link-label">https</span>
           <a class="link-url" href="${mobileUrl}" target="_blank" title="${mobileUrl}">${mobileUrl}</a>
-          <button class="btn btn-sm btn-copy" data-copy-text="${mobileUrl}">Copy</button>
+          <button class="btn btn-sm btn-copy" data-copy-text="${mobileUrl}">📋 Copy</button>
         </div>
-        <div class="link-hint">📋 Android: dán link vào <b>Chrome Android</b> → server mở trang có nút <b>"Mở Netflix App"</b> → bấm nút → app Netflix tự login. (KHÔNG dán trực tiếp vào app — Netflix sẽ trả NSES-404.)</div>
+        <div class="link-hint">📋 Android: bảo khách bấm trực tiếp vào link (mở ra trình duyệt → bấm "Open Netflix").</div>
       </div>
     `;
 
@@ -94,25 +94,31 @@ function buildCard(data, index = null) {
       ${linksHtml}
       <div class="expiry-row">
         <span class="expiry-left">⚠️ Token sống ~59 phút.</span>
-        <span class="copy-counter" data-count="0">Đã copy: <b>0/4</b></span>
+        <div class="copy-quota" data-count="0">
+          <span class="cq-label">Đã copy</span>
+          <span class="cq-pips"><i></i><i></i><i></i><i></i></span>
+          <b class="cq-num">0/4</b>
+        </div>
       </div>
     `;
 
     // Counter CHUNG cho cả 2 link trong card này. Mỗi lần bấm Copy (bất kỳ link nào)
-    // tăng 1. Đến 4/4 → disable cả 2 nút + hiện "Đổi link bạn ei".
-    const counter = card.querySelector(".copy-counter");
+    // tăng 1, 1 chấm pip sáng lên. Đến 4/4 → disable cả 2 nút + hiện "Đổi link mới".
+    const quota = card.querySelector(".copy-quota");
+    const pips = quota ? quota.querySelectorAll(".cq-pips i") : [];
+    const numEl = quota ? quota.querySelector(".cq-num") : null;
     const copyBtns = card.querySelectorAll(".btn-copy");
     const COUNTER_MAX = 4;
     let count = 0;
     const updateCounter = () => {
-      if (counter) {
-        counter.setAttribute("data-count", String(count));
-        counter.querySelector("b").textContent = `${count}/${COUNTER_MAX}`;
+      if (quota) {
+        quota.setAttribute("data-count", String(count));
+        pips.forEach((p, i) => p.classList.toggle("on", i < count));
+        if (numEl) numEl.textContent = `${count}/${COUNTER_MAX}`;
+        quota.classList.toggle("warn", count === COUNTER_MAX - 1);
         if (count >= COUNTER_MAX) {
-          counter.classList.add("counter-done");
-          counter.innerHTML = `<b>Đổi link bạn ei</b>`;
-        } else if (count === COUNTER_MAX - 1) {
-          counter.classList.add("counter-warn");
+          quota.classList.add("done");
+          quota.innerHTML = `🔄 Hết lượt — đổi link mới`;
         }
       }
       if (count >= COUNTER_MAX) {

@@ -144,12 +144,15 @@ textarea::placeholder { color: #555; }
 
 .btn-copy {
   background: var(--card2);
-  color: var(--text-muted);
+  color: var(--text);
   border: 1px solid var(--border);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
-.btn-copy:hover { background: var(--border); color: var(--text); }
-.btn-copy.copied { background: var(--success); color: #000; border-color: var(--success); }
+.btn-copy:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn-copy:active { transform: scale(0.94); }
+.btn-copy.copied { background: var(--success); color: #000; border-color: var(--success); font-weight: 700; }
 .btn-copy .copy-count {
   display: inline-block;
   margin-left: 4px;
@@ -176,25 +179,53 @@ textarea::placeholder { color: #555; }
 }
 .expiry-row .expiry-left { color: #ffb84d; }
 
-.copy-counter {
-  font-size: 0.85rem;
+/* ===== Copy quota — counter dạng chấm pips cho dễ nhìn ===== */
+.copy-quota {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
   user-select: none;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--card2);
+  transition: all .2s;
 }
-.copy-counter b {
-  font-weight: 700;
+.cq-label { color: var(--text-muted); }
+.cq-pips { display: inline-flex; gap: 5px; }
+.cq-pips i {
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  transition: transform .2s, background .2s, box-shadow .2s;
+}
+.cq-pips i.on {
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 6px rgba(229,9,20,.55);
+  transform: scale(1.12);
+}
+.cq-num {
+  font-weight: 800;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
-.copy-counter.counter-warn b { color: #ffb84d; }
-.copy-counter.counter-done b { color: #ff5252; }
-.copy-counter.counter-done {
-  color: #ff5252;
-  font-weight: 700;
-  font-size: 0.9rem;
+.copy-quota.warn { border-color: #ffb84d; }
+.copy-quota.warn .cq-num { color: #ffb84d; }
+.copy-quota.done {
+  color: #fff;
+  font-weight: 800;
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 10px rgba(229,9,20,.5);
+  animation: cq-pulse 1.2s ease-in-out infinite;
 }
+@keyframes cq-pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
 
 .btn-clear {
   background: transparent;
