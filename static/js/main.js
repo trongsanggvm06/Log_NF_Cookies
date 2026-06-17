@@ -42,11 +42,19 @@ function buildCard(data, index = null) {
   if (data.ok) {
     card.className = "result-card success";
     const indexBadge = index !== null ? `<span class="badge badge-index">#${index}</span>` : "";
-    // ── GIỐNG HỆT Netflix-Cookie-Checker-main/bot.py:1022-1023 ──
-    //   pc_link     = https://netflix.com/?nftoken=<token>            → PC / Web / iPhone / iPad
-    //   mobile_link = https://netflix.com/unsupported?nftoken=<token> → Android
-    const pcUrl = data.pc || data.url || data.mobile;       // pc_link bot gốc
-    const mobileUrl = data.mobile || data.url || data.pc;   // mobile_link bot gốc
+    // ── Phân biệt theo platform ────────────────────────────────────────────
+    //   PC / Web / iPhone / iPad → https://netflix.com/?nftoken=<token>
+    //     (iOS Safari tự handoff qua Universal Link; PC paste vào browser → web login.)
+    //
+    //   Android → HTTPS landing page của server ta /r/<token>
+    //     (Chrome Android mở landing page → bấm nút "Mở Netflix App" →
+    //      fire intent://www.netflix.com/?nftoken=<token> → mở com.netflix.mediaclient
+    //      với session từ token → login app.)
+    //   KHÔNG dùng https://netflix.com/unsupported?nftoken= cho Android vì path đó
+    //   KHÔNG thuộc AASA / Digital Asset Links → Chrome mở trang web bình thường →
+    //   Netflix trả NSES-404 ("Lost your way?").
+    const pcUrl = data.pc || data.url;                                // PC/Web/iPhone/iPad
+    const mobileUrl = data.android_intermediary || data.mobile;       // Android → landing page /r/<token>
 
     const linksHtml = `
       <div class="link-platform">
@@ -73,7 +81,7 @@ function buildCard(data, index = null) {
           <a class="link-url" href="${mobileUrl}" target="_blank" title="${mobileUrl}">${mobileUrl}</a>
           <button class="btn btn-sm btn-copy" data-copy-text="${mobileUrl}">Copy</button>
         </div>
-        <div class="link-hint">📋 Android: dán link vào Chrome → bấm <b>"Open App"</b> → "Continue" → app Netflix tự login.</div>
+        <div class="link-hint">📋 Android: dán link vào <b>Chrome Android</b> → server mở trang có nút <b>"Mở Netflix App"</b> → bấm nút → app Netflix tự login. (KHÔNG dán trực tiếp vào app — Netflix sẽ trả NSES-404.)</div>
       </div>
     `;
 

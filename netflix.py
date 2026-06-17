@@ -458,11 +458,21 @@ def _build_result(token: str, expiry, method_name: str, platform: str = "laptop"
         ";end"
     )
 
-    # ── GIỐNG HỆT Netflix-Cookie-Checker-main/bot.py:1022-1023 ──
-    #   PC / Web / iPhone / iPad  → https://netflix.com/?nftoken=<token>   (pc_link)
-    #   Android                   → https://netflix.com/unsupported?nftoken=<token>  (mobile_link)
-    pc_url = LOGIN_BASE + token              # = short_token_url, no-www, pc_link bot gốc
-    mobile_url = MOBILE_LOGIN_BASE + token   # /unsupported?nftoken=, mobile_link bot gốc
+    # ── Theo platform ──────────────────────────────────────────────────────────
+    #   PC / Web / iPhone / iPad  → https://netflix.com/?nftoken=<token>      (Universal Link + web login)
+    #   Android                   → <base_url>/r/<token>                    (HTTPS landing page CỦA TA;
+    #                                                                      landing page có nút "Mở Netflix App"
+    #                                                                      → fire intent:// → mở com.netflix.mediaclient)
+    #
+    # Tại sao Android KHÔNG dùng https://netflix.com/unsupported?nftoken=:
+    #   - Path /unsupported KHÔNG trong AASA / Digital Asset Links của Netflix Android app.
+    #   - Chrome Android mở nó như trang web bình thường (form email/password), KHÔNG handoff sang app.
+    #   - Token bị bỏ qua → Netflix trả về NSES-404 ("Lost your way?").
+    # → Bot gốc (Netflix-Cookie-Checker-main/bot.py:1022-1023) dùng mobile_link = /unsupported,
+    #   nhưng bot gốc dùng cho mobile web (Chrome Android, không phải app). Mục đích của ta là vào
+    #   APP Netflix, nên flow phải khác.
+    pc_url = LOGIN_BASE + token              # PC/Web/iPhone/iPad
+    mobile_url = intermediary_url            # Android → landing page HTTPS của server ta
     return {
         "ok": True,
         "token": token,

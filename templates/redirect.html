@@ -36,8 +36,11 @@
     margin-bottom: 20px;
     font-size: 14px;
     color: #ccc;
+    text-align: left;
   }
   .info b { color: #fff; }
+  .info ol { padding-left: 22px; margin-top: 8px; }
+  .info li { margin-bottom: 6px; }
 
   .btn {
     display: block;
@@ -53,8 +56,12 @@
     cursor: pointer;
     text-decoration: none;
     text-align: center;
+    -webkit-tap-highlight-color: transparent;
   }
   .btn:hover { background: #f40612; }
+  .btn:active { background: #c50710; transform: scale(0.98); }
+  .btn-secondary { background: #2a2a2a; color: #fff; }
+  .btn-secondary:hover { background: #353535; }
 
   .help {
     margin-top: 20px;
@@ -67,59 +74,129 @@
 
   .error { color: #ff5252; }
   .success { color: #4caf50; }
+
+  #status {
+    margin-top: 12px;
+    font-size: 13px;
+    min-height: 18px;
+  }
 </style>
 </head>
 <body>
   <div class="card">
     <div class="logo">🎬</div>
     <h1>Sign in to Netflix</h1>
-    <p class="subtitle">Tap the button below to open Netflix and sign in automatically.</p>
+    <p class="subtitle">Bấm nút bên dưới để mở app Netflix và đăng nhập tự động.</p>
 
     <div class="info">
-      👆 <b>Open the Netflix app</b> to continue.
+      <b>Hướng dẫn:</b>
+      <ol>
+        <li>Đảm bảo <b>đã cài app Netflix</b> trên thiết bị.</li>
+        <li>Bấm nút <b>"Mở Netflix"</b> bên dưới.</li>
+        <li>App Netflix sẽ tự mở và đăng nhập vào tài khoản của bạn.</li>
+      </ol>
     </div>
 
-    <a id="btn-app" class="btn" href="#">
-      📱 Open Netflix App
+    <button id="btn-app" class="btn" type="button">
+      📱 Mở Netflix
+    </button>
+
+    <a id="btn-web" class="btn btn-secondary" href="#" style="display:none;">
+      🌐 Mở trang web (PC/iPhone)
     </a>
 
+    <div id="status"></div>
+
     <div class="help">
-      <p>This link is safe and can only be used once.</p>
-      <p style="margin-top:6px;">Expires in <span id="expiry-text">59 minutes</span>.</p>
+      <p>Link này an toàn, dùng 1 lần.</p>
+      <p style="margin-top:6px;">Hết hạn sau <span id="expiry-text">59 phút</span>.</p>
     </div>
   </div>
 
 <script>
 (function() {
   const NFTOKEN = {{ nftoken|tojson }};
-  const NETFLIX_HTTPS = "https://www.netflix.com/?nftoken=" + NFTOKEN;
   const EXPIRY_MIN = {{ expiry_min|tojson }};
   const ANDROID_PKG = "com.netflix.mediaclient";
 
+  // Link Netflix chuẩn — DÙNG `netflix.com` (không có www) để khớp AASA / Digital Asset Links
+  // của app Netflix (App Link registered paths thường exclude www).
+  const NETFLIX_HTTPS = "https://netflix.com/?nftoken=" + NFTOKEN;
+
+  // intent:// URL cho Android — mở com.netflix.mediaclient và truyền nftoken qua scheme=https.
+  // S.browser_fallback_url = nếu app không tồn tại, Chrome sẽ mở URL này.
+  // Encode toàn bộ fallback URL bằng encodeURIComponent để ; và # trong fallback không phá intent://.
   const FALLBACK_ENCODED = encodeURIComponent(NETFLIX_HTTPS);
-  const INTENT_URL = "intent://www.netflix.com/?nftoken=" + NFTOKEN +
-    "#Intent;scheme=https;package=" + ANDROID_PKG +
+  const INTENT_URL =
+    "intent://www.netflix.com/?nftoken=" + encodeURIComponent(NFTOKEN) +
+    "#Intent" +
+    ";scheme=https" +
+    ";package=" + ANDROID_PKG +
     ";S.browser_fallback_url=" + FALLBACK_ENCODED +
     ";end";
 
   const userAgent = navigator.userAgent || "";
   const isAndroid = /Android/i.test(userAgent);
+  const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
 
   const btnApp = document.getElementById("btn-app");
+  const btnWeb = document.getElementById("btn-web");
+  const status = document.getElementById("status");
   const expiryText = document.getElementById("expiry-text");
 
-  if (expiryText) expiryText.textContent = EXPIRY_MIN + " minutes";
+  if (expiryText) expiryText.textContent = EXPIRY_MIN + " phút";
 
-  // No auto-redirect on any platform.
-  // User must tap the button. Chrome only fires intent:// on user gesture.
-
-  if (isAndroid) {
-    // Android: open the Netflix app via intent://
-    btnApp.href = INTENT_URL;
+  // PC / Web: hiện thêm nút mở web (iOS sẽ thử app qua Universal Link trước).
+  if (!isAndroid) {
+    btnWeb.style.display = "block";
+    btnWeb.href = NETFLIX_HTTPS;
+    if (isIOS) {
+      btnApp.textContent = "📱 Mở Netflix (Safari sẽ tự mở app)";
+    } else {
+      btnApp.textContent = "🌐 Mở Netflix trên trình duyệt";
+    }
   } else {
-    // iOS / PC / Web: HTTPS Universal Link (Safari will offer to open Netflix app)
-    btnApp.href = NETFLIX_HTTPS;
+    btnApp.textContent = "📱 Mở Netflix";
   }
+
+  // ── Click handler thật (user gesture) — Chrome chỉ fire intent:// từ user gesture.
+  // Trên Android: dùng button thay vì <a href> để Chrome CHẮC CHẮN nhận gesture.
+  let fired = false;
+  btnApp.addEventListener("click", function (e) {
+    e.preventDefault();
+    if (fired) return;
+    fired = true;
+    btnApp.disabled = true;
+    btnApp.style.opacity = "0.7";
+
+    if (isAndroid) {
+      // Cách 1: location.href — Chrome sẽ fire intent:// nếu package match.
+      // Cách 2: tạo <a> tạm click() — fallback khi cách 1 không work.
+      try {
+        status.textContent = "Đang mở Netflix...";
+        status.className = "";
+        window.location.href = INTENT_URL;
+        // Sau 2s nếu vẫn ở trang này → app không mở → thử fallback
+        setTimeout(function() {
+          if (document.visibilityState === "visible" && !document.hidden) {
+            status.textContent = "Nếu app không mở, bấm nút 'Mở trang web' bên dưới.";
+            btnWeb.style.display = "block";
+            btnWeb.href = NETFLIX_HTTPS;
+          }
+        }, 2000);
+      } catch (err) {
+        status.textContent = "Lỗi: " + err.message;
+        status.className = "error";
+      }
+    } else if (isIOS) {
+      // iOS: mở HTTPS Universal Link → Safari tự handoff sang app Netflix.
+      // Nếu app chưa cài, Safari sẽ mở web Netflix (cũng OK — login vào web).
+      window.location.href = NETFLIX_HTTPS;
+    } else {
+      // PC / Web: mở trang Netflix web → login.
+      window.location.href = NETFLIX_HTTPS;
+    }
+  });
 })();
 </script>
 </body>
