@@ -185,42 +185,6 @@ function buildCard(data, index = null) {
   return card;
 }
 
-// ===== DEBUG MODE =====
-const debugForm = document.getElementById("debug-form");
-const debugBtn = document.getElementById("debug-btn");
-const debugSpinner = document.getElementById("debug-spinner");
-const debugResult = document.getElementById("debug-result");
-
-debugForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const raw = document.getElementById("debug-cookie").value.trim();
-  const url = document.getElementById("debug-url").value.trim();
-  const method = document.getElementById("debug-method").value;
-  if (!raw || !url) return;
-
-  debugBtn.disabled = true;
-  debugSpinner.style.display = "inline-block";
-  debugResult.innerHTML = "";
-
-  try {
-    const resp = await fetch("/api/debug", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cookies: raw, url, method }),
-    });
-    const data = await resp.json();
-    const pre = document.createElement("pre");
-    pre.style.cssText = "background:var(--card2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;font-size:.75rem;color:var(--text);overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;";
-    pre.textContent = JSON.stringify(data, null, 2);
-    debugResult.appendChild(pre);
-  } catch {
-    debugResult.innerHTML = '<div class="result-card error-card"><div class="error-msg">❌ Lỗi kết nối</div></div>';
-  } finally {
-    debugBtn.disabled = false;
-    debugSpinner.style.display = "none";
-  }
-});
-
 // ===== SINGLE MODE =====
 const singleForm = document.getElementById("single-form");
 const singleInput = document.getElementById("single-input");
@@ -248,11 +212,13 @@ singleForm.addEventListener("submit", async (e) => {
     singleSpinner.style.display = "inline-block";
     singleResults.innerHTML = "";
 
+    const autoRefresh = document.getElementById("opt-refresh").checked;
+
     try {
         const resp = await fetch("/api/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ cookies: raw }),
+            body: JSON.stringify({ cookies: raw, auto_refresh: autoRefresh }),
         });
         const data = await resp.json();
         const card = buildCard(data);
@@ -332,18 +298,18 @@ function buildPendingCard(index) {
   return card;
 }
 
-function buildRetryButton(rawBlock, index) {
+function buildRetryButton(rawBlock, index, autoRefresh) {
   const btn = document.createElement("button");
   btn.className = "btn-retry";
   btn.textContent = "🔄 Thử lại";
   btn.onclick = async () => {
     btn.disabled = true;
     btn.textContent = "Đang thử lại...";
-    const data = await callGenerate(rawBlock);
+    const data = await callGenerate(rawBlock, autoRefresh);
     data.index = index;
     const newCard = buildCard(data, index);
     if (!data.ok) {
-      newCard.appendChild(buildRetryButton(rawBlock, index));
+      newCard.appendChild(buildRetryButton(rawBlock, index, autoRefresh));
     }
     const oldCard = document.querySelector(`#batch-results > [data-index="${index}"]`);
     if (oldCard) oldCard.replaceWith(newCard);
@@ -352,12 +318,12 @@ function buildRetryButton(rawBlock, index) {
   return btn;
 }
 
-async function callGenerate(rawBlock) {
+async function callGenerate(rawBlock, autoRefresh) {
   try {
     const resp = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cookies: rawBlock }),
+      body: JSON.stringify({ cookies: rawBlock, auto_refresh: autoRefresh }),
     });
 
     const contentType = resp.headers.get("content-type") || "";
@@ -399,6 +365,7 @@ batchForm.addEventListener("submit", async (e) => {
   stopBtn.textContent = "⏹ Dừng";
   batchResults.innerHTML = "";
   batchStats.style.display = "none";
+  const autoRefreshBatch = document.getElementById("opt-refresh-batch").checked;
   progressFill.classList.remove("done");
 
   let blocks = [];
@@ -440,7 +407,7 @@ batchForm.addEventListener("submit", async (e) => {
 
     const block = blocks[i];
     const idx = i + 1;
-    const data = await callGenerate(block);
+    const data = await callGenerate(block, autoRefreshBatch);
     data.index = idx;
 
     if (data.ok) ok++; else fail++;
@@ -449,7 +416,7 @@ batchForm.addEventListener("submit", async (e) => {
     const newCard = buildCard(data, idx);
     newCard.dataset.index = idx;
     if (!data.ok) {
-      newCard.appendChild(buildRetryButton(block, idx));
+      newCard.appendChild(buildRetryButton(block, idx, autoRefreshBatch));
     }
 
     const pendingCard = document.getElementById(`card-pending-${idx}`);

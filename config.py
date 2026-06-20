@@ -1,6 +1,12 @@
 PORT = 5000
 DEBUG = False
-SECRET_KEY = "netflix-login-app-2024"
+SECRET_KEY = "n3tf1ix-l0g1n-4pp-2024-xK9mP2vL8wQ3hJ5nR7sT1uY6zA0bC4dE"
+
+# --- Auth credentials (Basic Auth) ---
+# Hiện tại không dùng — app public cho vài người dùng
+import os
+AUTH_USER = ""
+AUTH_PASS = ""
 
 # --- Tuỳ chỉnh tiêu đề hiển thị ---
 APP_TITLE = "Netflix Login Link Generator"

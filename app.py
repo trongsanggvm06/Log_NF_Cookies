@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, url_for
+from flask import Flask, render_template, request, jsonify, url_for, redirect
 import urllib.parse
 import config
 from netflix import (
@@ -6,7 +6,6 @@ from netflix import (
     parse_cookie_blocks,
     get_login_links,
     refresh_cookies,
-    probe_endpoint,
     split_cookie_blocks,
     _extract_dt,
 )
@@ -27,7 +26,6 @@ def _get_base_url() -> str:
     env_base = os.environ.get("PUBLIC_BASE_URL", "").strip()
     if env_base:
         return env_base.rstrip("/")
-    # request.host_url luôn có trailing slash, vd "https://example.com/"
     return request.host_url.rstrip("/")
 
 
@@ -97,7 +95,7 @@ def generate():
                 "count": len(blocks),
             }), 400
         return jsonify({"ok": False, "error": "Không thể đọc cookie, kiểm tra định dạng"}), 400
-    result = get_login_links(cookies_dict, base_url=_get_base_url())
+    result = get_login_links(cookies_dict, auto_refresh=body.get("auto_refresh", True), base_url=_get_base_url())
     return jsonify(result)
 
 
@@ -150,26 +148,6 @@ def split():
 
     blocks = split_cookie_blocks(raw_all)
     return jsonify({"ok": True, "blocks": blocks, "count": len(blocks)})
-
-
-@app.route("/api/debug", methods=["POST"])
-def debug():
-    body = request.get_json(silent=True) or {}
-    raw = body.get("cookies", "").strip()
-    url = body.get("url", "").strip()
-    method = body.get("method", "POST").upper()
-
-    if not raw:
-        return jsonify({"error": "Cần cookie"}), 400
-    if not url:
-        return jsonify({"error": "Cần url"}), 400
-
-    cookies_dict = parse_cookies(raw)
-    if not cookies_dict:
-        return jsonify({"error": "Cookie không hợp lệ"}), 400
-
-    result = probe_endpoint(cookies_dict, url, method)
-    return jsonify(result)
 
 
 if __name__ == "__main__":

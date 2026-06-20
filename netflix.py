@@ -33,6 +33,22 @@ requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 COOKIE_KEYS = ("NetflixId", "SecureNetflixId", "nfvdid", "OptanonConsent", "flwssn", "gsid")
 
+# Random ESN per request — tránh Netflix blacklist cùng ESN cho tất cả user.
+import secrets as _secrets
+import string as _string
+
+def _gen_esn(prefix: str, length: int = 90) -> str:
+    return prefix + ''.join(_secrets.choice(_string.ascii_uppercase + _string.digits) for _ in range(length))
+
+def _gen_guid() -> str:
+    return ''.join(_secrets.choice('0123456789ABCDEF') for _ in range(16))
+
+# iOS ESN + GUID — random mỗi lần import (mỗi server process restart = 1 ESN mới).
+# Module-level random vẫn tốt hơn hardcoded, nhưng tốt nhất nên random per-request trong hàm mint.
+_IOS_ESN_FIXED   = "NFAPPL-02-IPHONE8=1-PXA-"
+_IOS_ESN          = _gen_esn(_IOS_ESN_FIXED, 90)
+_IOS_GUID         = _gen_guid()
+
 # ─── NFToken API (iOS FTL) — token NATIVE "account.token.default" ─────────────────
 # Port NGUYÊN từ bot tele: version 15.48, ESN + guid hardcode, headers cố định.
 # 1 token này dùng cho CẢ link PC và Mobile.
@@ -42,7 +58,7 @@ NFTOKEN_QUERY_PARAMS = {
     "appVersion": "15.48.1",
     "config": '{"gamesInTrailersEnabled":"false","isTrailersEvidenceEnabled":"false","cdsMyListSortEnabled":"true","kidsBillboardEnabled":"true","addHorizontalBoxArtToVideoSummariesEnabled":"false","skOverlayTestEnabled":"false","homeFeedTestTVMovieListsEnabled":"false","baselineOnIpadEnabled":"true","trailersVideoIdLoggingFixEnabled":"true","postPlayPreviewsEnabled":"false","bypassContextualAssetsEnabled":"false","roarEnabled":"false","useSeason1AltLabelEnabled":"false","disableCDSSearchPaginationSectionKinds":["searchVideoCarousel"],"cdsSearchHorizontalPaginationEnabled":"true","searchPreQueryGamesEnabled":"true","kidsMyListEnabled":"true","billboardEnabled":"true","useCDSGalleryEnabled":"true","contentWarningEnabled":"true","videosInPopularGamesEnabled":"true","avifFormatEnabled":"false","sharksEnabled":"true"}',
     "device_type": "NFAPPL-02-",
-    "esn": "NFAPPL-02-IPHONE8%3D1-PXA-02026U9VV5O8AUKEAEO8PUJETCGDD4PQRI9DEB3MDLEMD0EACM4CS78LMD334MN3MQ3NMJ8SU9O9MVGS6BJCURM1PH1MUTGDPF4S4200",
+    "esn": urllib.parse.quote(_IOS_ESN, safe=""),
     "idiom": "phone",
     "iosVersion": "15.8.5",
     "isTablet": "false",
@@ -62,8 +78,8 @@ NFTOKEN_QUERY_PARAMS = {
 NFTOKEN_HEADERS = {
     "User-Agent": "Argo/15.48.1 (iPhone; iOS 15.8.5; Scale/2.00)",
     "x-netflix.request.attempt": "1",
-    "x-netflix.request.client.user.guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
-    "x-netflix.context.profile-guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
+    "x-netflix.request.client.user.guid": _IOS_GUID,
+    "x-netflix.context.profile-guid": _IOS_GUID,
     "x-netflix.request.routing": '{"path":"/nq/mobile/nqios/~15.48.0/user","control_tag":"iosui_argo"}',
     "x-netflix.context.app-version": "15.48.1",
     "x-netflix.argo.translated": "true",
@@ -71,7 +87,7 @@ NFTOKEN_HEADERS = {
     "x-netflix.context.sdk-version": "2012.4",
     "x-netflix.client.appversion": "15.48.1",
     "x-netflix.client.type": "argo",
-    "x-netflix.client.ftl.esn": "NFAPPL-02-IPHONE8=1-PXA-02026U9VV5O8AUKEAEO8PUJETCGDD4PQRI9DEB3MDLEMD0EACM4CS78LMD334MN3MQ3NMJ8SU9O9MVGS6BJCURM1PH1MUTGDPF4S4200",
+    "x-netflix.client.ftl.esn": _IOS_ESN,
     "x-netflix.context.locales": "en-US",
     "accept-language": "en-US;q=1",
     "x-netflix.context.os-version": "15.8.5",
@@ -86,16 +102,52 @@ NFTOKEN_HEADERS = {
 # Ref: tham khảo _test_more_endpoints.py (tested 2025).
 ANDROID_NFTOKEN_API_URL = "https://android.prod.ftl.netflix.com/androidui/user/15.48"
 
-# Mỗi lần tạo ESN mới để tránh Netflix blacklist cùng ESN.
-import secrets as _secrets
-import string as _string
-_ANDROID_FTL_ESN = "NFANDROID-01-" + ''.join(_secrets.choice(_string.ascii_uppercase + _string.digits) for _ in range(30))
 
+def _build_android_params_and_headers():
+    esn = _get_android_esn()
+    guid = _get_android_guid()
+    return {
+        "params": {
+            "appVersion": "15.48.1",
+            "config": '{"gamesInTrailersEnabled":"false","isTrailersEvidenceEnabled":"false","cdsMyListSortEnabled":"true","kidsBillboardEnabled":"true","addHorizontalBoxArtToVideoSummariesEnabled":"false","skOverlayTestEnabled":"false","homeFeedTestTVMovieListsEnabled":"false","baselineOnIpadEnabled":"true","trailersVideoIdLoggingFixEnabled":"true","postPlayPreviewsEnabled":"false","bypassContextualAssetsEnabled":"false","roarEnabled":"false","useSeason1AltLabelEnabled":"false","disableCDSSearchPaginationSectionKinds":["searchVideoCarousel"],"cdsSearchHorizontalPaginationEnabled":"true","searchPreQueryGamesEnabled":"true","kidsMyListEnabled":"true","billboardEnabled":"true","useCDSGalleryEnabled":"true","contentWarningEnabled":"true","videosInPopularGamesEnabled":"true","avifFormatEnabled":"false","sharksEnabled":"true"}',
+            "device_type": "NFANDROID-01-",
+            "esn": urllib.parse.quote(esn, safe=""),
+            "languages": "en-US",
+            "locale": "en-US",
+            "path": '["account","token","default"]',
+            "pathFormat": "graph",
+            "progressive": "false",
+            "responseFormat": "json",
+        },
+        "headers": {
+            "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 14; SM-S908B Build/TP1A.220624.014)",
+            "x-netflix.request.attempt": "1",
+            "x-netflix.request.client.user.guid": guid,
+            "x-netflix.context.profile-guid": guid,
+            "x-netflix.request.routing": '{"path":"/nq/android/nqandroid/~15.48.0/user","control_tag":"androidui_argo"}',
+            "x-netflix.context.app-version": "15.48.1",
+            "x-netflix.argo.translated": "true",
+            "x-netflix.context.form-factor": "phone",
+            "x-netflix.context.sdk-version": "2012.4",
+            "x-netflix.client.appversion": "15.48.1",
+            "x-netflix.client.type": "argo",
+            "x-netflix.client.ftl.esn": esn,
+            "x-netflix.context.locales": "en-US",
+            "accept-language": "en-US;q=1",
+            "x-netflix.context.os-version": "14",
+            "x-netflix.request.client.context": '{"appState":"foreground"}',
+            "x-netflix.context.ui-flavor": "argo",
+        },
+    }
+
+
+# Module-level constants (backward compat) — KHÔNG dùng trực tiếp nữa, dùng _build_android_params_and_headers()
+_ANDROID_ESN_FALLBACK = "NFANDROID-01-" + "A" * 30
 ANDROID_NFTOKEN_QUERY_PARAMS = {
     "appVersion": "15.48.1",
     "config": '{"gamesInTrailersEnabled":"false","isTrailersEvidenceEnabled":"false","cdsMyListSortEnabled":"true","kidsBillboardEnabled":"true","addHorizontalBoxArtToVideoSummariesEnabled":"false","skOverlayTestEnabled":"false","homeFeedTestTVMovieListsEnabled":"false","baselineOnIpadEnabled":"true","trailersVideoIdLoggingFixEnabled":"true","postPlayPreviewsEnabled":"false","bypassContextualAssetsEnabled":"false","roarEnabled":"false","useSeason1AltLabelEnabled":"false","disableCDSSearchPaginationSectionKinds":["searchVideoCarousel"],"cdsSearchHorizontalPaginationEnabled":"true","searchPreQueryGamesEnabled":"true","kidsMyListEnabled":"true","billboardEnabled":"true","useCDSGalleryEnabled":"true","contentWarningEnabled":"true","videosInPopularGamesEnabled":"true","avifFormatEnabled":"false","sharksEnabled":"true"}',
     "device_type": "NFANDROID-01-",
-    "esn": urllib.parse.quote(_ANDROID_FTL_ESN, safe=""),
+    "esn": urllib.parse.quote(_ANDROID_ESN_FALLBACK, safe=""),
     "languages": "en-US",
     "locale": "en-US",
     "path": '["account","token","default"]',
@@ -103,12 +155,11 @@ ANDROID_NFTOKEN_QUERY_PARAMS = {
     "progressive": "false",
     "responseFormat": "json",
 }
-
 ANDROID_NFTOKEN_HEADERS = {
     "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 14; SM-S908B Build/TP1A.220624.014)",
     "x-netflix.request.attempt": "1",
-    "x-netflix.request.client.user.guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
-    "x-netflix.context.profile-guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
+    "x-netflix.request.client.user.guid": "A4CS633D7VCBPE2GPK2HLL",
+    "x-netflix.context.profile-guid": "A4CS633D7VCBPE2GPK2HLL",
     "x-netflix.request.routing": '{"path":"/nq/android/nqandroid/~15.48.0/user","control_tag":"androidui_argo"}',
     "x-netflix.context.app-version": "15.48.1",
     "x-netflix.argo.translated": "true",
@@ -116,7 +167,7 @@ ANDROID_NFTOKEN_HEADERS = {
     "x-netflix.context.sdk-version": "2012.4",
     "x-netflix.client.appversion": "15.48.1",
     "x-netflix.client.type": "argo",
-    "x-netflix.client.ftl.esn": _ANDROID_FTL_ESN,
+    "x-netflix.client.ftl.esn": _ANDROID_ESN_FALLBACK,
     "x-netflix.context.locales": "en-US",
     "accept-language": "en-US;q=1",
     "x-netflix.context.os-version": "14",
@@ -661,11 +712,12 @@ def create_nftoken_android(cookies_dict: dict, attempts: int = 3) -> tuple:
         log = {"method": f"NFToken androidui/15.48 (try {attempt})",
                "url": ANDROID_NFTOKEN_API_URL, "status": None, "preview": ""}
         try:
-            headers = dict(ANDROID_NFTOKEN_HEADERS)
+            android = _build_android_params_and_headers()
+            headers = dict(android["headers"])
             headers["Cookie"] = cookie_header
             resp = requests.get(
                 ANDROID_NFTOKEN_API_URL,
-                params=ANDROID_NFTOKEN_QUERY_PARAMS,
+                params=android["params"],
                 headers=headers,
                 timeout=30,
                 verify=False,
