@@ -429,9 +429,6 @@ def _build_result(token: str, expiry, method_name: str, platform: str = "laptop"
     "netflix://" trong Android app (xem tech stack audit: chỉ có intent:https, intent:market)
     → link đó không trigger gì cả. ĐÃ BỎ.
     """
-    full_token_url = "https://www.netflix.com/?nftoken=" + token
-    short_token_url = LOGIN_BASE + token  # https://netflix.com/?nftoken=
-
     # Trang trung gian: user mở link HTTPS này → server trả HTML có nút bấm để mở app.
     # QUAN TRỌNG: phải URL-encode token trong URL vì token chứa ký tự đặc biệt (+, /).
     # - Dấu + trong URL không được quote thì server sẽ decode thành SPACE → lỗi 500
@@ -447,43 +444,28 @@ def _build_result(token: str, expiry, method_name: str, platform: str = "laptop"
         encoded_token = urllib.parse.quote(token, safe="")
         intermediary_url = f"https://example.com/r/{encoded_token}"
 
-    # Android intent:// URL — raw, chỉ work khi click từ 1 trang web khác (user gesture).
-    fallback_encoded = urllib.parse.quote(full_token_url, safe="")
-    intent_url = (
-        "intent://www.netflix.com/?nftoken=" + token +
-        "#Intent"
-        ";scheme=https"
-        ";package=com.netflix.mediaclient"
-        ";S.browser_fallback_url=" + fallback_encoded +
-        ";end"
-    )
-
     # ── Theo platform ──────────────────────────────────────────────────────────
-    #   PC / Web / iPhone / iPad  → https://netflix.com/?nftoken=<token>      (Universal Link + web login)
-    #   Android                   → <base_url>/r/<token>                    (HTTPS landing page CỦA TA;
-    #                                                                      landing page có nút "Mở Netflix App"
-    #                                                                      → fire intent:// → mở com.netflix.mediaclient)
+    #   PC / Web   → https://netflix.com/?nftoken=<token>
+    #                 (paste vào trình duyệt → vào Netflix web)
     #
-    # Tại sao Android KHÔNG dùng https://netflix.com/unsupported?nftoken=:
-    #   - Path /unsupported KHÔNG trong AASA / Digital Asset Links của Netflix Android app.
-    #   - Chrome Android mở nó như trang web bình thường (form email/password), KHÔNG handoff sang app.
-    #   - Token bị bỏ qua → Netflix trả về NSES-404 ("Lost your way?").
-    # → Bot gốc (Netflix-Cookie-Checker-main/bot.py:1022-1023) dùng mobile_link = /unsupported,
-    #   nhưng bot gốc dùng cho mobile web (Chrome Android, không phải app). Mục đích của ta là vào
-    #   APP Netflix, nên flow phải khác.
-    pc_url = LOGIN_BASE + token              # PC/Web/iPhone/iPad
-    mobile_url = intermediary_url            # Android → landing page HTTPS của server ta
+    #   iPhone/iPad → https://netflix.com/unsupported?nftoken=<token>
+    #                 (link từ bot gốc Netflix-Cookie-Checker-main/bot.py)
+    #                 → Safari redeem token → /unsupported page → tap "Open App"
+    #
+    #   Android     → <base_url>/r/<token>
+    #                 (landing page có nút "Mở Netflix App" → intent:// → app)
+    pc_url = LOGIN_BASE + token              # PC / Web
+    ios_url = "https://netflix.com/unsupported?nftoken=" + token
+    mobile_url = intermediary_url             # Android → landing page
     return {
         "ok": True,
         "token": token,
-        "url": pc_url,                                    # PC/Web/iPhone/iPad (reference pc_link)
+        "url": pc_url,                                    # PC/Web (reference)
         "pc": pc_url,
-        "mobile": mobile_url,                             # Android (reference mobile_link)
-        "android_universal": full_token_url,              # (giữ) HTTPS Universal Link / App Link
-        "android_intermediary": intermediary_url,         # (giữ) Trang HTML trung gian
-        "android_intent": intent_url,                     # (giữ) Raw intent://
-        "android_short": short_token_url,
+        "ios": ios_url,                                   # iPhone / iPad
+        "mobile": mobile_url,                             # Android
         "expiry": _fmt_expiry(expiry),
+        "expires_ts": int(expiry) if expiry else None,    # Unix ms timestamp for countdown
         "build_id": method_name,
         "strategy": method_name,
         "platform": platform,

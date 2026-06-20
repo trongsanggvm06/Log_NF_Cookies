@@ -35,32 +35,23 @@ async function copyText(text, btn) {
   }
 }
 
-// ===== BUILD RESULT CARD (2 link giống bot gốc: PC/Web/iPhone/iPad = /?nftoken=, Android = /unsupported?nftoken=) =====
+// ===== BUILD RESULT CARD (3 platform: PC, iPhone, Android) =====
 function buildCard(data, index = null) {
   const card = document.createElement("div");
 
   if (data.ok) {
     card.className = "result-card success";
     const indexBadge = index !== null ? `<span class="badge badge-index">#${index}</span>` : "";
-    // ── Phân biệt theo platform ────────────────────────────────────────────
-    //   PC / Web / iPhone / iPad → https://netflix.com/?nftoken=<token>
-    //     (iOS Safari tự handoff qua Universal Link; PC paste vào browser → web login.)
-    //
-    //   Android → HTTPS landing page của server ta /r/<token>
-    //     (Chrome Android mở landing page → bấm nút "Mở Netflix App" →
-    //      fire intent://www.netflix.com/?nftoken=<token> → mở com.netflix.mediaclient
-    //      với session từ token → login app.)
-    //   KHÔNG dùng https://netflix.com/unsupported?nftoken= cho Android vì path đó
-    //   KHÔNG thuộc AASA / Digital Asset Links → Chrome mở trang web bình thường →
-    //   Netflix trả NSES-404 ("Lost your way?").
-    const pcUrl = data.pc || data.url;                                // PC/Web/iPhone/iPad
-    const mobileUrl = data.android_intermediary || data.mobile;       // Android → landing page /r/<token>
+
+    const pcUrl = data.pc || data.url;
+    const iosUrl = data.ios || data.pc || data.url;
+    const androidUrl = data.mobile;
 
     const linksHtml = `
       <div class="link-platform">
         <div class="link-platform-header">
           <span class="link-platform-icon">💻</span>
-          <span class="link-platform-name">PC / Web / iPhone / iPad</span>
+          <span class="link-platform-name">PC / Web</span>
           <span class="badge badge-ok">OK</span>
         </div>
         <div class="link-row">
@@ -68,7 +59,18 @@ function buildCard(data, index = null) {
           <a class="link-url" href="${pcUrl}" target="_blank" title="${pcUrl}">${pcUrl}</a>
           <button class="btn btn-sm btn-copy" data-copy-text="${pcUrl}">📋 Copy</button>
         </div>
-        <div class="link-hint">📋 PC/Laptop: dán vào trình duyệt → vào thẳng Netflix. iPhone/iPad: dán vào Safari → tự mở app Netflix.</div>
+      </div>
+      <div class="link-platform">
+        <div class="link-platform-header">
+          <span class="link-platform-icon">📱</span>
+          <span class="link-platform-name">iPhone / iPad</span>
+          <span class="badge badge-ok">OK</span>
+        </div>
+        <div class="link-row">
+          <span class="link-label">https</span>
+          <a class="link-url" href="${iosUrl}" target="_blank" title="${iosUrl}">${iosUrl}</a>
+          <button class="btn btn-sm btn-copy" data-copy-text="${iosUrl}">📋 Copy</button>
+        </div>
       </div>
       <div class="link-platform">
         <div class="link-platform-header">
@@ -78,10 +80,9 @@ function buildCard(data, index = null) {
         </div>
         <div class="link-row">
           <span class="link-label">https</span>
-          <a class="link-url" href="${mobileUrl}" target="_blank" title="${mobileUrl}">${mobileUrl}</a>
-          <button class="btn btn-sm btn-copy" data-copy-text="${mobileUrl}">📋 Copy</button>
+          <a class="link-url" href="${androidUrl}" target="_blank" title="${androidUrl}">${androidUrl}</a>
+          <button class="btn btn-sm btn-copy" data-copy-text="${androidUrl}">📋 Copy</button>
         </div>
-        <div class="link-hint">📋 Android: bảo khách bấm trực tiếp vào link (mở ra trình duyệt → bấm "Open Netflix").</div>
       </div>
     `;
 
@@ -89,11 +90,10 @@ function buildCard(data, index = null) {
       <div class="result-header">
         ${indexBadge}
         <span class="badge badge-ok">✓ Thành công</span>
-        <span class="result-title">Hết hạn: ${data.expiry || "—"}</span>
       </div>
       ${linksHtml}
       <div class="expiry-row">
-        <span class="expiry-left">⚠️ Token sống ~59 phút.</span>
+        <span class="expiry-left">⚠️ Token sống: <span class="countdown" data-ts="${data.expires_ts || 0}">--:--</span></span>
         <div class="copy-quota" data-count="0">
           <span class="cq-label">Đã copy</span>
           <span class="cq-pips"><i></i><i></i><i></i><i></i></span>
@@ -102,8 +102,32 @@ function buildCard(data, index = null) {
       </div>
     `;
 
-    // Counter CHUNG cho cả 2 link trong card này. Mỗi lần bấm Copy (bất kỳ link nào)
-    // tăng 1, 1 chấm pip sáng lên. Đến 4/4 → disable cả 2 nút + hiện "Đổi link mới".
+    // Countdown timer
+    const countdownEl = card.querySelector(".countdown");
+    if (countdownEl) {
+      const expiresTs = parseInt(countdownEl.dataset.ts, 10);
+      if (expiresTs > 0) {
+        const tick = () => {
+          const now = Date.now();
+          const remaining = Math.max(0, Math.floor((expiresTs - now) / 1000));
+          if (remaining <= 0) {
+            countdownEl.textContent = "Hết hạn";
+            countdownEl.style.color = "#ff5252";
+            return;
+          }
+          const m = Math.floor(remaining / 60);
+          const s = remaining % 60;
+          countdownEl.textContent = `${m}:${String(s).padStart(2, "0")}`;
+          if (remaining <= 60) countdownEl.style.color = "#ff5252";
+          setTimeout(tick, 1000);
+        };
+        setTimeout(tick, 1000);
+      } else {
+        countdownEl.textContent = "59:00";
+      }
+    }
+
+    // Copy counter
     const quota = card.querySelector(".copy-quota");
     const pips = quota ? quota.querySelectorAll(".cq-pips i") : [];
     const numEl = quota ? quota.querySelector(".cq-num") : null;
