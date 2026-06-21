@@ -51,7 +51,7 @@ function buildCard(data, index = null) {
       <div class="link-platform">
         <div class="link-platform-header">
           <span class="link-platform-icon">💻</span>
-          <span class="link-platform-name">PC / Web</span>
+          <span class="link-platform-name">PC / Web / Ipad</span>
           <span class="badge badge-ok">OK</span>
         </div>
         <div class="link-row">
@@ -63,7 +63,7 @@ function buildCard(data, index = null) {
       <div class="link-platform">
         <div class="link-platform-header">
           <span class="link-platform-icon">📱</span>
-          <span class="link-platform-name">iPhone / iPad</span>
+          <span class="link-platform-name">iPhone</span>
           <span class="badge badge-ok">OK</span>
         </div>
         <div class="link-row">
