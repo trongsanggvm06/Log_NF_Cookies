@@ -142,11 +142,17 @@
   if (exp) exp.textContent = EXPIRY_MIN;
 
   function go() {
-    if (isAndroid && isWebView) {
-      status.textContent = "Opening in your browser…";
-      window.location.href = BREAKOUT;     // thoát WebView → trình duyệt mặc định
+    // Android: LUÔN mở TRÌNH DUYỆT MẶC ĐỊNH qua breakout intent (trỏ domain CỦA TA — app
+    // Netflix KHÔNG claim được domain này nên CHẮC CHẮN mở browser, không kẹt trong WebView
+    // chat Zalo/Messenger/Viber/Telegram/Cốc Cốc...). KHÔNG gate theo isWebView nữa: nhiều
+    // in-app browser không nhận diện được → trước đây rơi nhánh else → bị KẸT trong app chat.
+    // Browser thật gặp intent này: không có app khớp domain ta → tự dùng browser_fallback_url
+    // (= GO) → vẫn chạy mượt, ở đúng trình duyệt mặc định.
+    if (isAndroid) {
+      status.textContent = "Đang mở trình duyệt mặc định…";
+      window.location.href = BREAKOUT;
     } else {
-      window.location.href = GO;           // browser thật / iOS / PC → /go 302 → netflix
+      window.location.href = GO;           // iOS / PC → /go 302 → netflix
     }
   }
 
