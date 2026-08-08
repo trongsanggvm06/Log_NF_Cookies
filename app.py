@@ -61,18 +61,16 @@ def redirect_intermediary(token):
 
 @app.route("/go/<path:token>")
 def go_redirect(token):
-    # SERVER 302 sang netflix.com/?nftoken= (no-www). Vì là SERVER redirect nên trình
-    # duyệt KHÔNG hand sang app Netflix (App Link chỉ kích khi click/intent trực tiếp,
-    # KHÔNG kích trên redirect) → token redeem NGAY TRONG trình duyệt → /unsupported →
-    # khách bấm "Open App" của Netflix → app handoff cùng browser → login.
-    # /r/ (domain ta) lo việc thoát WebView; /go lo việc đẩy sang netflix mà không bị app cướp.
-    # QUAN TRỌNG: trỏ /unsupported?nftoken= (KHÔNG phải /?nftoken=). Vì /?nftoken= sẽ qua
-    # chuỗi redirect / → /browse → /unsupported, mà /browse là App Link app CÓ claim → app
-    # cướp /browse giữa chừng → mở app COLD → NSES-404/Google chooser. /unsupported?nftoken=
-    # vẫn redeem token NHƯNG vào thẳng /unsupported (path app KHÔNG claim) → không bị cướp →
-    # dừng ở trang "Open App" đã-login → tap Open App → handoff đúng → login app.
+    # SERVER 302 sang root NO-WWW /?nftoken= — path Netflix AASA/assetlinks CLAIM cho app handoff.
+    # KIỂM CHỨNG LIVE 2026-08-08 (đảo kết luận cũ): "/unsupported" bị EXCLUDE khỏi app handoff
+    # (iOS AASA lẫn Android App Link) → KHÔNG BAO GIỜ mở app, chỉ ra trang "unsupported browser".
+    # Root "/?*" được claim. Token redeem ở MỌI path; KHÔNG path nào trả NSES-404 phía server —
+    # NSES-404 là do APP cướp link rồi mở path nó không route được (vd /unsupported).
+    # DÙNG NO-WWW: netflix.com/?nftoken= → 301 → /browse (login OK); www → /login (FAIL) — đã probe.
+    # /r/ (domain ta) lo việc thoát WebView chat; /go đẩy sang netflix root (giống link PC chạy tốt).
+    # Token giữ THÔ (base64 chuẩn có +,/) — encode sẽ double-encode trong chuỗi redirect của Netflix.
     from flask import redirect
-    return redirect("https://netflix.com/unsupported?nftoken=" + token, code=302)
+    return redirect("https://netflix.com/?nftoken=" + token, code=302)
 
 
 @app.route("/api/generate", methods=["POST"])

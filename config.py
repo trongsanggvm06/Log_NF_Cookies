@@ -12,17 +12,29 @@ AUTH_PASS = ""
 APP_TITLE = "Netflix Login Link Generator"
 APP_SUBTITLE = "Chuyển đổi Cookie Netflix thành Link Đăng Nhập"
 
-# --- URL đăng nhập — phân biệt theo platform ---
-#   PC / Web / iPhone / iPad → https://netflix.com/?nftoken=<token>  (Universal Link iOS + web login PC)
-#   Android                  → <base_url>/r/<token>                (HTTPS landing page của ta; landing page có
-#                                                                     nút "Mở Netflix App" → fire intent:// →
-#                                                                     Chrome mở com.netflix.mediaclient)
-# Lý do KHÔNG dùng https://netflix.com/unsupported?nftoken= cho Android:
-#   - Path /unsupported KHÔNG được đăng ký trong AASA / Digital Asset Links của Netflix Android app.
-#   - Chrome Android mở nó như 1 trang web bình thường (form email/password), KHÔNG handoff sang app.
-#   - Token bị bỏ qua → Netflix trả về NSES-404 ("Lost your way?").
+# --- URL đăng nhập theo platform ---
+#   PC / Web / iPad / Android → https://netflix.com/?nftoken=<token>  (root NO-WWW)
+#   iPhone                    → https://netflix.com/unsupported?nftoken=  (GIỮ NHƯ CŨ theo yêu cầu)
+#   Android (khách bấm link trong webview Zalo/Messenger) → <base_url>/r/<token>
+#     (landing thoát webview ra trình duyệt thật rồi mở root ở đó)
+#
+# VÌ SAO ANDROID dùng root /?nftoken= chứ KHÔNG /unsupported — kiểm chứng LIVE 2026-08-08:
+#   - AASA + assetlinks CHÍNH THỨC của Netflix: path "/unsupported" bị EXCLUDE khỏi AUTO app handoff
+#     (Universal Link iOS lẫn App Link Android). App cướp link /unsupported → không route được →
+#     render /NotFound = NSES-404. Root "/?*" thì ĐƯỢC claim + redeem sạch.
+#   - iPhone GIỮ /unsupported: iPhone KHÔNG dính NSES-404 như Android; trên Safari, /unsupported
+#     redeem token rồi hiện nút "Open App" (handoff thủ công) → OK. Fix lần này CHỈ nhắm Android.
+#   - Probe token THẬT: mọi path đều redeem (set NetflixId); KHÔNG path nào trả NSES-404 phía server.
+#     NSES-404 = app cướp link rồi mở path nó không route được (vd /unsupported) → tùy cấu hình MÁY
+#     (có/không app + bật mở-link) → CHẬP CHỜN dù cùng account/quốc gia.
+#   - Tool cộng đồng gốc (harshitkamboj / elakirihacker) chỉ xuất DUY NHẤT netflix.com/?nftoken=.
+#   - Token là base64 CHUẨN (có +, /): GIỮ THÔ, KHÔNG url-encode (encode gây double-encode trong redirect).
+# VÌ SAO NO-WWW (KHÔNG www) — kiểm chứng desktop UA 2026-08-08 + Playwright 2026-06-13:
+#   - netflix.com/?nftoken= → 301 www.netflix.com/ (redeem + strip token) → /browse = ĐĂNG NHẬP OK.
+#   - www.netflix.com/?nftoken= → token bị mang tiếp → /browse?nftoken= → /login = THẤT BẠI.
+#   ⇒ TUYỆT ĐỐI giữ no-www (apex 301 mới redeem sạch).
 # Token mint qua iOS FTL (ios.prod.ftl.netflix.com/iosui/user/15.48) — y hệt bot gốc.
-LOGIN_BASE = "https://netflix.com/?nftoken="                         # PC / Web / iPhone / iPad
+LOGIN_BASE = "https://netflix.com/?nftoken="                         # DÙNG CHUNG cho mọi platform (NO-WWW)
 # MOBILE_LOGIN_BASE sẽ được build runtime = base_url + /r/<encoded_token>
 # → xem _build_result() trong netflix.py
 # Giữ constant này rỗng để tương thích code cũ (sẽ tự dùng intermediary_url):

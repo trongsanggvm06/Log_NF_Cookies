@@ -495,19 +495,15 @@ def _build_result(token: str, expiry, method_name: str, platform: str = "laptop"
         encoded_token = urllib.parse.quote(token, safe="")
         intermediary_url = f"https://example.com/r/{encoded_token}"
 
-    # ── Theo platform ──────────────────────────────────────────────────────────
-    #   PC / Web   → https://netflix.com/?nftoken=<token>
-    #                 (paste vào trình duyệt → vào Netflix web)
-    #
-    #   iPhone/iPad → https://netflix.com/unsupported?nftoken=<token>
-    #                 (link từ bot gốc Netflix-Cookie-Checker-main/bot.py)
-    #                 → Safari redeem token → /unsupported page → tap "Open App"
-    #
-    #   Android     → <base_url>/r/<token>
-    #                 (landing page có nút "Mở Netflix App" → intent:// → app)
-    pc_url = LOGIN_BASE + token              # PC / Web
-    ios_url = "https://netflix.com/unsupported?nftoken=" + token
-    mobile_url = intermediary_url             # Android → landing page
+    # ── Theo platform (kiểm chứng LIVE 2026-08-08 — xem config.LOGIN_BASE) ────────
+    #   PC / Web / iPad → root no-www /?nftoken= (no-www 301 redeem sạch ra /browse; www đẩy /login).
+    #   Android         → landing /r/<token> (thoát webview chat) → /go → root /?nftoken=.
+    #   iPhone          → /unsupported?nftoken= — GIỮ NHƯ CŨ theo yêu cầu (iPhone KHÔNG dính NSES-404
+    #                     như Android; Safari redeem token rồi trang /unsupported có nút "Open App").
+    #                     Fix NSES-404 lần này CHỈ áp cho Android, KHÔNG đụng iPhone.
+    pc_url = LOGIN_BASE + token               # PC / Web / iPad
+    ios_url = "https://netflix.com/unsupported?nftoken=" + token   # iPhone — GIỮ NGUYÊN bản cũ
+    mobile_url = intermediary_url             # Android → landing /r/ → /go → root
     return {
         "ok": True,
         "token": token,
