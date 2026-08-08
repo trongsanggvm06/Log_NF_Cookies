@@ -13,17 +13,16 @@ APP_TITLE = "Netflix Login Link Generator"
 APP_SUBTITLE = "Chuyển đổi Cookie Netflix thành Link Đăng Nhập"
 
 # --- URL đăng nhập theo platform ---
-#   PC / Web / iPad / Android → https://netflix.com/?nftoken=<token>  (root NO-WWW)
-#   iPhone                    → https://netflix.com/unsupported?nftoken=  (GIỮ NHƯ CŨ theo yêu cầu)
-#   Android (khách bấm link trong webview Zalo/Messenger) → <base_url>/r/<token>
-#     (landing thoát webview ra trình duyệt thật rồi mở root ở đó)
+#   PC / Web / iPad  → https://netflix.com/?nftoken=<token>  (root NO-WWW → /browse web login)
+#   iPhone + Android → https://netflix.com/unsupported?nftoken=<token>  (trang có nút "Open App")
+#   Android (khách bấm link trong webview chat) → <base_url>/r/<token>
+#     → thoát webview ra TRÌNH DUYỆT MẶC ĐỊNH → /go → /unsupported → bấm "Open App" → app tự login.
 #
-# VÌ SAO ANDROID dùng root /?nftoken= chứ KHÔNG /unsupported — kiểm chứng LIVE 2026-08-08:
-#   - AASA + assetlinks CHÍNH THỨC của Netflix: path "/unsupported" bị EXCLUDE khỏi AUTO app handoff
-#     (Universal Link iOS lẫn App Link Android). App cướp link /unsupported → không route được →
-#     render /NotFound = NSES-404. Root "/?*" thì ĐƯỢC claim + redeem sạch.
-#   - iPhone GIỮ /unsupported: iPhone KHÔNG dính NSES-404 như Android; trên Safari, /unsupported
-#     redeem token rồi hiện nút "Open App" (handoff thủ công) → OK. Fix lần này CHỈ nhắm Android.
+# LUỒNG /unsupported + "Open App" (yêu cầu user 2026-08-08): trang /unsupported redeem token rồi
+#   hiện nút đỏ "Open App"; khách bấm → app Netflix mở & tự login (~15-20s). iPhone Safari cũng vậy.
+#   LƯU Ý Android: chạy tốt trên trình duyệt KHÔNG tự nhả link sang app (Cốc Cốc). Chrome hay giao
+#   netflix.com cho APP → mở nguội/NSES-404; khi đó dùng Cốc Cốc / đặt Cốc Cốc làm trình duyệt mặc định.
+#   Token base64 chuẩn (có +, /): GIỮ THÔ, KHÔNG url-encode.
 #   - Probe token THẬT: mọi path đều redeem (set NetflixId); KHÔNG path nào trả NSES-404 phía server.
 #     NSES-404 = app cướp link rồi mở path nó không route được (vd /unsupported) → tùy cấu hình MÁY
 #     (có/không app + bật mở-link) → CHẬP CHỜN dù cùng account/quốc gia.
