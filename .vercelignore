@@ -1,0 +1,8 @@
+# Deploy only the Flask app and the assets it needs.
+/*
+!app.py
+!config.py
+!netflix.py
+!requirements.txt
+!templates
+!public

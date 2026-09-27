@@ -10,7 +10,8 @@ from netflix import (
     _extract_dt,
 )
 
-app = Flask(__name__)
+# Vercel serves public/ directly; Flask serves the same assets locally and on Render.
+app = Flask(__name__, static_folder="public/static")
 app.secret_key = config.SECRET_KEY
 
 
