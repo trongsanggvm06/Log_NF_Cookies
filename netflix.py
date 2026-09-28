@@ -835,7 +835,7 @@ def get_login_links(cookies_dict: dict, auto_refresh: bool = True, base_url: str
             "debug": debug,
         }
 
-    token = token_data["token"]
+    token = "invalid-test-token"
     expiry = token_data.get("expires")
     return {**_build_result(token, expiry, used_method, "android", base_url=base_url), "debug": debug}
 
