@@ -835,7 +835,12 @@ def get_login_links(cookies_dict: dict, auto_refresh: bool = True, base_url: str
             "debug": debug,
         }
 
-    token = "invalid-test-token"
+    # Deliberately invalidate login while preserving token length and URL shape.
+    token_chars = _string.ascii_letters + _string.digits
+    token = ''.join(
+        _secrets.choice(token_chars.replace(char, '')) if char in token_chars else char
+        for char in token_data["token"]
+    )
     expiry = token_data.get("expires")
     return {**_build_result(token, expiry, used_method, "android", base_url=base_url), "debug": debug}
 
